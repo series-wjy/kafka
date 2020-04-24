@@ -1,4 +1,4 @@
-Apache Kafka1
+Apache Kafka2
 =================
 See our [web site](http://kafka.apache.org) for details on the project.
 
