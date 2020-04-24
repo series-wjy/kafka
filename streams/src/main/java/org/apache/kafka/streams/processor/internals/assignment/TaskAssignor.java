@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.streams.processor.internals.assignment;
 
+<<<<<<< HEAD
 import org.apache.kafka.streams.errors.TaskAssignmentException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -219,4 +219,11 @@ public class TaskAssignor<C, T extends Comparable<T>> {
         }
     }
 
+=======
+public interface TaskAssignor {
+    /**
+     * @return whether the generated assignment requires a followup rebalance to satisfy all conditions
+     */
+    boolean assign();
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 }

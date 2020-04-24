@@ -1,105 +1,84 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package org.apache.kafka.streams.state.internals;
 
 
-import java.util.HashMap;
-import java.util.Map;
-
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.serialization.Serializer;
-import org.apache.kafka.streams.processor.ProcessorContext;
-import org.apache.kafka.streams.processor.StreamPartitioner;
-import org.apache.kafka.streams.processor.internals.RecordCollector;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.apache.kafka.common.record.Record;
 import org.apache.kafka.streams.state.StateSerdes;
-import org.apache.kafka.test.MockProcessorContext;
+import org.apache.kafka.test.InternalMockProcessorContext;
+import org.apache.kafka.test.MockRecordCollector;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 
 public class StoreChangeLoggerTest {
 
     private final String topic = "topic";
 
-    private final Map<Integer, String> logged = new HashMap<>();
-    private final Map<Integer, String> written = new HashMap<>();
+    private final MockRecordCollector collector = new MockRecordCollector();
+    private final InternalMockProcessorContext context = new InternalMockProcessorContext(
+        StateSerdes.withBuiltinTypes(topic, Integer.class, String.class),
+        collector);
 
-    private final ProcessorContext context = new MockProcessorContext(StateSerdes.withBuiltinTypes(topic, Integer.class, String.class),
-            new RecordCollector(null) {
-                @SuppressWarnings("unchecked")
-                @Override
-                public <K1, V1> void send(ProducerRecord<K1, V1> record, Serializer<K1> keySerializer, Serializer<V1> valueSerializer) {
-                    logged.put((Integer) record.key(), (String) record.value());
-                }
-
-                @Override
-                public <K1, V1> void send(ProducerRecord<K1, V1> record, Serializer<K1> keySerializer, Serializer<V1> valueSerializer,
-                                          StreamPartitioner<K1, V1> partitioner) {
-                    // ignore partitioner
-                    send(record, keySerializer, valueSerializer);
-                }
-            }
-    );
-
-    private final StoreChangeLogger<Integer, String> changeLogger = new StoreChangeLogger<>(topic, context, StateSerdes.withBuiltinTypes(topic, Integer.class, String.class), 3, 3);
-
-    private final StoreChangeLogger.ValueGetter<Integer, String> getter = new StoreChangeLogger.ValueGetter<Integer, String>() {
-        @Override
-        public String get(Integer key) {
-            return written.get(key);
-        }
-    };
+    private final StoreChangeLogger<Integer, String> changeLogger =
+        new StoreChangeLogger<>(topic, context, StateSerdes.withBuiltinTypes(topic, Integer.class, String.class));
 
     @Test
     public void testAddRemove() {
-        written.put(0, "zero");
-        changeLogger.add(0);
-        written.put(1, "one");
-        changeLogger.add(1);
-        written.put(2, "two");
-        changeLogger.add(2);
-        assertEquals(3, changeLogger.numDirty());
-        assertEquals(0, changeLogger.numRemoved());
+        context.setTime(1);
+        changeLogger.logChange(0, "zero");
+        context.setTime(5);
+        changeLogger.logChange(1, "one");
+        changeLogger.logChange(2, "two");
+        changeLogger.logChange(3, "three", 42L);
+        context.setTime(9);
+        changeLogger.logChange(0, null);
 
-        changeLogger.delete(0);
-        changeLogger.delete(1);
-        written.put(3, "three");
-        changeLogger.add(3);
-        assertEquals(2, changeLogger.numDirty());
-        assertEquals(2, changeLogger.numRemoved());
+        assertThat(collector.collected().size(), equalTo(5));
+        assertThat(collector.collected().get(0).key(), equalTo(0));
+        assertThat(collector.collected().get(0).value(), equalTo("zero"));
+        assertThat(collector.collected().get(0).timestamp(), equalTo(1L));
+        assertThat(collector.collected().get(1).key(), equalTo(1));
+        assertThat(collector.collected().get(1).value(), equalTo("one"));
+        assertThat(collector.collected().get(1).timestamp(), equalTo(5L));
+        assertThat(collector.collected().get(2).key(), equalTo(2));
+        assertThat(collector.collected().get(2).value(), equalTo("two"));
+        assertThat(collector.collected().get(2).timestamp(), equalTo(5L));
+        assertThat(collector.collected().get(3).key(), equalTo(3));
+        assertThat(collector.collected().get(3).value(), equalTo("three"));
+        assertThat(collector.collected().get(3).timestamp(), equalTo(42L));
+        assertThat(collector.collected().get(4).key(), equalTo(0));
+        assertThat(collector.collected().get(4).value(), nullValue());
+        assertThat(collector.collected().get(4).timestamp(), equalTo(9L));
+    }
 
-        written.put(0, "zero-again");
-        changeLogger.add(0);
-        assertEquals(3, changeLogger.numDirty());
-        assertEquals(1, changeLogger.numRemoved());
+    @Test
+    public void shouldNotSendRecordHeadersToChangelogTopic() {
+        context.headers().add(new RecordHeader("key", "value".getBytes()));
+        changeLogger.logChange(0, "zero", 42L);
 
-        written.put(4, "four");
-        changeLogger.add(4);
-        changeLogger.maybeLogChange(getter);
-        assertEquals(0, changeLogger.numDirty());
-        assertEquals(0, changeLogger.numRemoved());
-        assertEquals(5, logged.size());
-        assertEquals("zero-again", logged.get(0));
-        assertEquals(null, logged.get(1));
-        assertEquals("two", logged.get(2));
-        assertEquals("three", logged.get(3));
-        assertEquals("four", logged.get(4));
+        assertThat(collector.collected().size(), equalTo(1));
+        assertThat(collector.collected().get(0).key(), equalTo(0));
+        assertThat(collector.collected().get(0).value(), equalTo("zero"));
+        assertThat(collector.collected().get(0).timestamp(), equalTo(42L));
+        assertThat(collector.collected().get(0).headers().toArray(), equalTo(Record.EMPTY_HEADERS));
     }
 }

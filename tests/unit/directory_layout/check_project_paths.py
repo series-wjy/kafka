@@ -16,7 +16,11 @@
 
 from kafkatest.directory_layout.kafka_path import create_path_resolver, KafkaSystemTestPathResolver, \
     KAFKA_PATH_RESOLVER_KEY
+<<<<<<< HEAD
 from kafkatest.version import V_0_9_0_1, TRUNK, KafkaVersion
+=======
+from kafkatest.version import V_0_9_0_1, DEV_BRANCH, KafkaVersion
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
 
 class DummyContext(object):
@@ -56,9 +60,15 @@ class CheckCreatePathResolver(object):
         """Check expected path resolution without any version specified."""
         resolver = create_path_resolver(DummyContext())
 
+<<<<<<< HEAD
         assert resolver.home() == "/opt/kafka-trunk"
         assert resolver.bin() == "/opt/kafka-trunk/bin"
         assert resolver.script("kafka-run-class.sh") == "/opt/kafka-trunk/bin/kafka-run-class.sh"
+=======
+        assert resolver.home() == "/opt/kafka-dev"
+        assert resolver.bin() == "/opt/kafka-dev/bin"
+        assert resolver.script("kafka-run-class.sh") == "/opt/kafka-dev/bin/kafka-run-class.sh"
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
     def check_versioned_source_paths(self):
         """Check expected paths when using versions."""
@@ -74,16 +84,26 @@ class CheckCreatePathResolver(object):
         """
         resolver = create_path_resolver(DummyContext())
 
+<<<<<<< HEAD
         # Node with no version attribute should resolve to TRUNK
         node = DummyNode()
         assert resolver._version(node) == TRUNK
+=======
+        # Node with no version attribute should resolve to DEV_BRANCH
+        node = DummyNode()
+        assert resolver._version(node) == DEV_BRANCH
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
         # Node with version attribute should resolve to the version attribute
         node.version = V_0_9_0_1
         assert resolver._version(node) == V_0_9_0_1
 
         # A KafkaVersion object should resolve to itself
+<<<<<<< HEAD
         assert resolver._version(TRUNK) == TRUNK
+=======
+        assert resolver._version(DEV_BRANCH) == DEV_BRANCH
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         version = KafkaVersion("999.999.999")
         assert resolver._version(version) == version
 

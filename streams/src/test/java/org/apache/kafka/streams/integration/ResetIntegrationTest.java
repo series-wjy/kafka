@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /**
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -8,6 +9,18 @@
  * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
  * <p>
+=======
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +29,7 @@
  */
 package org.apache.kafka.streams.integration;
 
+<<<<<<< HEAD
 import kafka.admin.AdminClient;
 import kafka.tools.StreamsResetter;
 import kafka.utils.ZkUtils;
@@ -55,11 +69,26 @@ import java.util.Set;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
+=======
+import kafka.server.KafkaConfig$;
+import org.apache.kafka.streams.integration.utils.EmbeddedKafkaCluster;
+import org.apache.kafka.test.IntegrationTest;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.ClassRule;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+
+import java.util.Map;
+import java.util.Properties;
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
 
 /**
  * Tests local state store and global application cleanup.
  */
+<<<<<<< HEAD
 public class ResetIntegrationTest {
     @ClassRule
     public static final EmbeddedSingleNodeKafkaCluster CLUSTER = new EmbeddedSingleNodeKafkaCluster();
@@ -287,4 +316,79 @@ public class ResetIntegrationTest {
         }
     }
 
+=======
+@Category({IntegrationTest.class})
+public class ResetIntegrationTest extends AbstractResetIntegrationTest {
+
+    @ClassRule
+    public static final EmbeddedKafkaCluster CLUSTER;
+
+    private static final String TEST_ID = "reset-integration-test";
+
+    static {
+        final Properties brokerProps = new Properties();
+        // we double the value passed to `time.sleep` in each iteration in one of the map functions, so we disable
+        // expiration of connections by the brokers to avoid errors when `AdminClient` sends requests after potentially
+        // very long sleep times
+        brokerProps.put(KafkaConfig$.MODULE$.ConnectionsMaxIdleMsProp(), -1L);
+        CLUSTER = new EmbeddedKafkaCluster(1, brokerProps);
+    }
+
+    @Override
+    Map<String, Object> getClientSslConfig() {
+        return null;
+    }
+
+    @Before
+    public void before() throws Exception {
+        testId = TEST_ID;
+        cluster = CLUSTER;
+        prepareTest();
+    }
+
+    @After
+    public void after() throws Exception {
+        cleanupTest();
+    }
+
+    @Test
+    public void testReprocessingFromScratchAfterResetWithoutIntermediateUserTopic() throws Exception {
+        super.testReprocessingFromScratchAfterResetWithoutIntermediateUserTopic();
+    }
+
+    @Test
+    public void testReprocessingFromScratchAfterResetWithIntermediateUserTopic() throws Exception {
+        super.testReprocessingFromScratchAfterResetWithIntermediateUserTopic();
+    }
+
+    @Test
+    public void testReprocessingFromFileAfterResetWithoutIntermediateUserTopic() throws Exception {
+        super.testReprocessingFromFileAfterResetWithoutIntermediateUserTopic();
+    }
+
+    @Test
+    public void testReprocessingFromDateTimeAfterResetWithoutIntermediateUserTopic() throws Exception {
+        super.testReprocessingFromDateTimeAfterResetWithoutIntermediateUserTopic();
+    }
+
+    @Test
+    public void testReprocessingByDurationAfterResetWithoutIntermediateUserTopic() throws Exception {
+        super.testReprocessingByDurationAfterResetWithoutIntermediateUserTopic();
+    }
+
+    @Test
+    public void shouldNotAllowToResetWhileStreamsRunning() throws Exception {
+        super.shouldNotAllowToResetWhileStreamsIsRunning();
+    }
+
+    @Test
+    public void shouldNotAllowToResetWhenInputTopicAbsent() throws Exception {
+        super.shouldNotAllowToResetWhenInputTopicAbsent();
+    }
+
+    @Test
+    public void shouldNotAllowToResetWhenIntermediateTopicAbsent() throws Exception {
+        super.shouldNotAllowToResetWhenIntermediateTopicAbsent();
+    }
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 }

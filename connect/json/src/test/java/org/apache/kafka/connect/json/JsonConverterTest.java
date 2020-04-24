@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -13,14 +13,14 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- **/
-
+ */
 package org.apache.kafka.connect.json;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.connect.data.Date;
 import org.apache.kafka.connect.data.Decimal;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -36,10 +36,13 @@ import org.junit.Before;
 import org.junit.Test;
 import org.powermock.reflect.Whitebox;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -55,6 +58,10 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+<<<<<<< HEAD
+=======
+import static org.junit.Assert.assertThrows;
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -66,7 +73,7 @@ public class JsonConverterTest {
 
     @Before
     public void setUp() {
-        converter.configure(Collections.EMPTY_MAP, false);
+        converter.configure(Collections.emptyMap(), false);
     }
 
     // Schema metadata
@@ -169,10 +176,22 @@ public class JsonConverterTest {
         assertEquals(new SchemaAndValue(expectedSchema, expected), converted);
     }
 
-    @Test(expected = DataException.class)
+    @Test
+    public void structWithOptionalFieldToConnect() {
+        byte[] structJson = "{ \"schema\": { \"type\": \"struct\", \"fields\": [{ \"field\":\"optional\", \"type\": \"string\", \"optional\": true }, {  \"field\": \"required\", \"type\": \"string\" }] }, \"payload\": { \"required\": \"required\" } }".getBytes();
+        Schema expectedSchema = SchemaBuilder.struct().field("optional", Schema.OPTIONAL_STRING_SCHEMA).field("required", Schema.STRING_SCHEMA).build();
+        Struct expected = new Struct(expectedSchema).put("required", "required");
+        SchemaAndValue converted = converter.toConnectData(TOPIC, structJson);
+        assertEquals(new SchemaAndValue(expectedSchema, expected), converted);
+    }
+
+    @Test
     public void nullToConnect() {
-        // When schemas are enabled, trying to decode a null should be an error -- we should *always* have the envelope
-        assertEquals(SchemaAndValue.NULL, converter.toConnectData(TOPIC, null));
+        // When schemas are enabled, trying to decode a tombstone should be an empty envelope
+        // the behavior is the same as when the json is "{ "schema": null, "payload": null }"
+        // to keep compatibility with the record
+        SchemaAndValue converted = converter.toConnectData(TOPIC, null);
+        assertEquals(SchemaAndValue.NULL, converted);
     }
 
     @Test
@@ -247,6 +266,30 @@ public class JsonConverterTest {
     }
 
     @Test
+<<<<<<< HEAD
+=======
+    public void numericDecimalToConnect() {
+        BigDecimal reference = new BigDecimal(new BigInteger("156"), 2);
+        Schema schema = Decimal.schema(2);
+        String msg = "{ \"schema\": { \"type\": \"bytes\", \"name\": \"org.apache.kafka.connect.data.Decimal\", \"version\": 1, \"parameters\": { \"scale\": \"2\" } }, \"payload\": 1.56 }";
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, msg.getBytes());
+        assertEquals(schema, schemaAndValue.schema());
+        assertEquals(reference, schemaAndValue.value());
+    }
+
+    @Test
+    public void highPrecisionNumericDecimalToConnect() {
+        // this number is too big to be kept in a float64!
+        BigDecimal reference = new BigDecimal("1.23456789123456789");
+        Schema schema = Decimal.schema(17);
+        String msg = "{ \"schema\": { \"type\": \"bytes\", \"name\": \"org.apache.kafka.connect.data.Decimal\", \"version\": 1, \"parameters\": { \"scale\": \"17\" } }, \"payload\": 1.23456789123456789 }";
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, msg.getBytes());
+        assertEquals(schema, schemaAndValue.schema());
+        assertEquals(reference, schemaAndValue.value());
+    }
+
+    @Test
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
     public void dateToConnect() {
         Schema schema = Date.SCHEMA;
         GregorianCalendar calendar = new GregorianCalendar(1970, Calendar.JANUARY, 1, 0, 0, 0);
@@ -560,6 +603,20 @@ public class JsonConverterTest {
                 converted.get(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME));
     }
 
+    @Test
+    public void structSchemaIdentical() {
+        Schema schema = SchemaBuilder.struct().field("field1", Schema.BOOLEAN_SCHEMA)
+                                              .field("field2", Schema.STRING_SCHEMA)
+                                              .field("field3", Schema.STRING_SCHEMA)
+                                              .field("field4", Schema.BOOLEAN_SCHEMA).build();
+        Schema inputSchema = SchemaBuilder.struct().field("field1", Schema.BOOLEAN_SCHEMA)
+                                                   .field("field2", Schema.STRING_SCHEMA)
+                                                   .field("field3", Schema.STRING_SCHEMA)
+                                                   .field("field4", Schema.BOOLEAN_SCHEMA).build();
+        Struct input = new Struct(inputSchema).put("field1", true).put("field2", "string2").put("field3", "string3").put("field4", false);
+        assertStructSchemaEqual(schema, input);
+    }
+
 
     @Test
     public void decimalToJson() throws IOException {
@@ -567,11 +624,31 @@ public class JsonConverterTest {
         validateEnvelope(converted);
         assertEquals(parse("{ \"type\": \"bytes\", \"optional\": false, \"name\": \"org.apache.kafka.connect.data.Decimal\", \"version\": 1, \"parameters\": { \"scale\": \"2\" } }"),
                 converted.get(JsonSchema.ENVELOPE_SCHEMA_FIELD_NAME));
+        assertTrue("expected node to be base64 text", converted.get(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME).isTextual());
         assertArrayEquals(new byte[]{0, -100}, converted.get(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME).binaryValue());
     }
 
     @Test
-    public void dateToJson() throws IOException {
+    public void decimalToNumericJson() {
+        converter.configure(Collections.singletonMap(JsonConverterConfig.DECIMAL_FORMAT_CONFIG, DecimalFormat.NUMERIC.name()), false);
+        JsonNode converted = parse(converter.fromConnectData(TOPIC, Decimal.schema(2), new BigDecimal(new BigInteger("156"), 2)));
+        validateEnvelope(converted);
+        assertEquals(parse("{ \"type\": \"bytes\", \"optional\": false, \"name\": \"org.apache.kafka.connect.data.Decimal\", \"version\": 1, \"parameters\": { \"scale\": \"2\" } }"),
+            converted.get(JsonSchema.ENVELOPE_SCHEMA_FIELD_NAME));
+        assertTrue("expected node to be numeric", converted.get(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME).isNumber());
+        assertEquals(new BigDecimal("1.56"), converted.get(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME).decimalValue());
+    }
+
+    @Test
+    public void decimalToJsonWithoutSchema() throws IOException {
+        assertThrows(
+            "expected data exception when serializing BigDecimal without schema",
+            DataException.class,
+            () -> converter.fromConnectData(TOPIC, null, new BigDecimal(new BigInteger("156"), 2)));
+    }
+
+    @Test
+    public void dateToJson() {
         GregorianCalendar calendar = new GregorianCalendar(1970, Calendar.JANUARY, 1, 0, 0, 0);
         calendar.setTimeZone(TimeZone.getTimeZone("UTC"));
         calendar.add(Calendar.DATE, 10000);
@@ -587,7 +664,7 @@ public class JsonConverterTest {
     }
 
     @Test
-    public void timeToJson() throws IOException {
+    public void timeToJson() {
         GregorianCalendar calendar = new GregorianCalendar(1970, Calendar.JANUARY, 1, 0, 0, 0);
         calendar.setTimeZone(TimeZone.getTimeZone("UTC"));
         calendar.add(Calendar.MILLISECOND, 14400000);
@@ -603,7 +680,7 @@ public class JsonConverterTest {
     }
 
     @Test
-    public void timestampToJson() throws IOException {
+    public void timestampToJson() {
         GregorianCalendar calendar = new GregorianCalendar(1970, Calendar.JANUARY, 1, 0, 0, 0);
         calendar.setTimeZone(TimeZone.getTimeZone("UTC"));
         calendar.add(Calendar.MILLISECOND, 2000000000);
@@ -679,14 +756,29 @@ public class JsonConverterTest {
         );
     }
 
+    @Test
+    public void nullSchemaAndNullValueToJson() {
+        // This characterizes the production of tombstone messages when Json schemas is enabled
+        Map<String, Boolean> props = Collections.singletonMap("schemas.enable", true);
+        converter.configure(props, true);
+        byte[] converted = converter.fromConnectData(TOPIC, null, null);
+        assertNull(converted);
+    }
+
+    @Test
+    public void nullValueToJson() {
+        // This characterizes the production of tombstone messages when Json schemas is not enabled
+        Map<String, Boolean> props = Collections.singletonMap("schemas.enable", false);
+        converter.configure(props, true);
+        byte[] converted = converter.fromConnectData(TOPIC, null, null);
+        assertNull(converted);
+    }
 
     @Test(expected = DataException.class)
     public void mismatchSchemaJson() {
         // If we have mismatching schema info, we should properly convert to a DataException
         converter.fromConnectData(TOPIC, Schema.FLOAT64_SCHEMA, true);
     }
-
-
 
     @Test
     public void noSchemaToConnect() {
@@ -720,6 +812,35 @@ public class JsonConverterTest {
         // Validate that a similar, but different schema correctly returns a different schema.
         converter.fromConnectData(TOPIC, SchemaBuilder.bool().optional().build(), true);
         assertEquals(2, cache.size());
+    }
+
+    @Test
+    public void testJsonSchemaCacheSizeFromConfigFile() throws URISyntaxException, IOException {
+        URL url = getClass().getResource("/connect-test.properties");
+        File propFile = new File(url.toURI());
+        String workerPropsFile = propFile.getAbsolutePath();
+        Map<String, String> workerProps = !workerPropsFile.isEmpty() ?
+                Utils.propsToStringMap(Utils.loadProps(workerPropsFile)) : Collections.<String, String>emptyMap();
+
+        JsonConverter rc = new JsonConverter();
+        rc.configure(workerProps, false);
+    }
+
+
+    // Note: the header conversion methods delegates to the data conversion methods, which are tested above.
+    // The following simply verify that the delegation works.
+
+    @Test
+    public void testStringHeaderToJson() {
+        JsonNode converted = parse(converter.fromConnectHeader(TOPIC, "headerName", Schema.STRING_SCHEMA, "test-string"));
+        validateEnvelope(converted);
+        assertEquals(parse("{ \"type\": \"string\", \"optional\": false }"), converted.get(JsonSchema.ENVELOPE_SCHEMA_FIELD_NAME));
+        assertEquals("test-string", converted.get(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME).textValue());
+    }
+
+    @Test
+    public void stringHeaderToConnect() {
+        assertEquals(new SchemaAndValue(Schema.STRING_SCHEMA, "foo-bar-baz"), converter.toConnectHeader(TOPIC, "headerName", "{ \"schema\": { \"type\": \"string\" }, \"payload\": \"foo-bar-baz\" }".getBytes()));
     }
 
 
@@ -757,5 +878,10 @@ public class JsonConverterTest {
         assertTrue(env.has(JsonSchema.ENVELOPE_SCHEMA_FIELD_NAME));
         assertTrue(env.get(JsonSchema.ENVELOPE_SCHEMA_FIELD_NAME).isNull());
         assertTrue(env.has(JsonSchema.ENVELOPE_PAYLOAD_FIELD_NAME));
+    }
+    
+    private void assertStructSchemaEqual(Schema schema, Struct struct) {
+        converter.fromConnectData(TOPIC, schema, struct);
+        assertEquals(schema, struct.schema());
     }
 }

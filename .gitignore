@@ -1,7 +1,10 @@
 dist
 *classes
+*.class
 target/
 build/
+build_eclipse/
+out/
 .gradle/
 lib_managed/
 src_managed/
@@ -21,9 +24,8 @@ TAGS
 *.iml
 .project
 .settings
-.gradle
-kafka.ipr
-kafka.iws
+*.ipr
+*.iws
 .vagrant
 Vagrantfile.local
 /logs
@@ -32,12 +34,28 @@ Vagrantfile.local
 config/server-*
 config/zookeeper-*
 core/data/*
-gradle/wrapper/*
+gradle/wrapper/*.jar
+gradlew.bat
 
 results
 tests/results
 .ducktape
 tests/.ducktape
+<<<<<<< HEAD
+=======
+tests/venv
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 .cache
 
 docs/generated/
+
+.release-settings.json
+
+kafkatest.egg-info/
+systest/
+*.swp
+clients/src/generated
+clients/src/generated-test
+jmh-benchmarks/generated
+jmh-benchmarks/src/main/generated
+streams/src/generated

@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -13,11 +13,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- **/
-
+ */
 package org.apache.kafka.connect.storage;
 
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -59,17 +59,21 @@ import static org.junit.Assert.fail;
 
 @RunWith(PowerMockRunner.class)
 @PrepareForTest(KafkaOffsetBackingStore.class)
-@PowerMockIgnore("javax.management.*")
-@SuppressWarnings("unchecked")
+@PowerMockIgnore({"javax.management.*", "javax.crypto.*"})
+@SuppressWarnings({"unchecked", "deprecation"})
 public class KafkaOffsetBackingStoreTest {
     private static final String TOPIC = "connect-offsets";
+    private static final short TOPIC_PARTITIONS = 2;
+    private static final short TOPIC_REPLICATION_FACTOR = 5;
     private static final Map<String, String> DEFAULT_PROPS = new HashMap<>();
     private static final DistributedConfig DEFAULT_DISTRIBUTED_CONFIG;
     static {
         DEFAULT_PROPS.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "broker1:9092,broker2:9093");
         DEFAULT_PROPS.put(DistributedConfig.OFFSET_STORAGE_TOPIC_CONFIG, TOPIC);
+        DEFAULT_PROPS.put(DistributedConfig.OFFSET_STORAGE_REPLICATION_FACTOR_CONFIG, Short.toString(TOPIC_REPLICATION_FACTOR));
+        DEFAULT_PROPS.put(DistributedConfig.OFFSET_STORAGE_PARTITIONS_CONFIG, Integer.toString(TOPIC_PARTITIONS));
         DEFAULT_PROPS.put(DistributedConfig.CONFIG_TOPIC_CONFIG, "connect-configs");
-        DEFAULT_PROPS.put(DistributedConfig.OFFSET_STORAGE_TOPIC_CONFIG, "connect-offsets");
+        DEFAULT_PROPS.put(DistributedConfig.CONFIG_STORAGE_REPLICATION_FACTOR_CONFIG, Short.toString(TOPIC_REPLICATION_FACTOR));
         DEFAULT_PROPS.put(DistributedConfig.GROUP_ID_CONFIG, "connect");
         DEFAULT_PROPS.put(DistributedConfig.STATUS_STORAGE_TOPIC_CONFIG, "status-topic");
         DEFAULT_PROPS.put(DistributedConfig.KEY_CONVERTER_CLASS_CONFIG, "org.apache.kafka.connect.json.JsonConverter");
@@ -101,17 +105,19 @@ public class KafkaOffsetBackingStoreTest {
     private Capture<String> capturedTopic = EasyMock.newCapture();
     private Capture<Map<String, Object>> capturedProducerProps = EasyMock.newCapture();
     private Capture<Map<String, Object>> capturedConsumerProps = EasyMock.newCapture();
+    private Capture<Map<String, Object>> capturedAdminProps = EasyMock.newCapture();
+    private Capture<NewTopic> capturedNewTopic = EasyMock.newCapture();
     private Capture<Callback<ConsumerRecord<byte[], byte[]>>> capturedConsumedCallback = EasyMock.newCapture();
 
     @Before
     public void setUp() throws Exception {
-        store = PowerMock.createPartialMockAndInvokeDefaultConstructor(KafkaOffsetBackingStore.class, new String[]{"createKafkaBasedLog"});
+        store = PowerMock.createPartialMockAndInvokeDefaultConstructor(KafkaOffsetBackingStore.class, "createKafkaBasedLog");
     }
 
     @Test
     public void testStartStop() throws Exception {
         expectConfigure();
-        expectStart(Collections.EMPTY_LIST);
+        expectStart(Collections.emptyList());
         expectStop();
 
         PowerMock.replayAll();
@@ -122,6 +128,10 @@ public class KafkaOffsetBackingStoreTest {
         assertEquals("org.apache.kafka.common.serialization.ByteArraySerializer", capturedProducerProps.getValue().get(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG));
         assertEquals("org.apache.kafka.common.serialization.ByteArrayDeserializer", capturedConsumerProps.getValue().get(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG));
         assertEquals("org.apache.kafka.common.serialization.ByteArrayDeserializer", capturedConsumerProps.getValue().get(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG));
+
+        assertEquals(TOPIC, capturedNewTopic.getValue().name());
+        assertEquals(TOPIC_PARTITIONS, capturedNewTopic.getValue().numPartitions());
+        assertEquals(TOPIC_REPLICATION_FACTOR, capturedNewTopic.getValue().replicationFactor());
 
         store.start();
         store.stop();
@@ -156,18 +166,15 @@ public class KafkaOffsetBackingStoreTest {
     @Test
     public void testGetSet() throws Exception {
         expectConfigure();
-        expectStart(Collections.EMPTY_LIST);
+        expectStart(Collections.emptyList());
         expectStop();
 
         // First get() against an empty store
         final Capture<Callback<Void>> firstGetReadToEndCallback = EasyMock.newCapture();
         storeLog.readToEnd(EasyMock.capture(firstGetReadToEndCallback));
-        PowerMock.expectLastCall().andAnswer(new IAnswer<Object>() {
-            @Override
-            public Object answer() throws Throwable {
-                firstGetReadToEndCallback.getValue().onCompletion(null, null);
-                return null;
-            }
+        PowerMock.expectLastCall().andAnswer(() -> {
+            firstGetReadToEndCallback.getValue().onCompletion(null, null);
+            return null;
         });
 
         // Set offsets
@@ -210,17 +217,10 @@ public class KafkaOffsetBackingStoreTest {
         store.start();
 
         // Getting from empty store should return nulls
-        final AtomicBoolean getInvokedAndPassed = new AtomicBoolean(false);
-        store.get(Arrays.asList(TP0_KEY, TP1_KEY), new Callback<Map<ByteBuffer, ByteBuffer>>() {
-            @Override
-            public void onCompletion(Throwable error, Map<ByteBuffer, ByteBuffer> result) {
-                // Since we didn't read them yet, these will be null
-                assertEquals(null, result.get(TP0_KEY));
-                assertEquals(null, result.get(TP1_KEY));
-                getInvokedAndPassed.set(true);
-            }
-        }).get(10000, TimeUnit.MILLISECONDS);
-        assertTrue(getInvokedAndPassed.get());
+        Map<ByteBuffer, ByteBuffer> offsets = store.get(Arrays.asList(TP0_KEY, TP1_KEY)).get(10000, TimeUnit.MILLISECONDS);
+        // Since we didn't read them yet, these will be null
+        assertNull(offsets.get(TP0_KEY));
+        assertNull(offsets.get(TP1_KEY));
 
         // Set some offsets
         Map<ByteBuffer, ByteBuffer> toSet = new HashMap<>();
@@ -243,28 +243,74 @@ public class KafkaOffsetBackingStoreTest {
         assertTrue(invoked.get());
 
         // Getting data should read to end of our published data and return it
-        final AtomicBoolean secondGetInvokedAndPassed = new AtomicBoolean(false);
-        store.get(Arrays.asList(TP0_KEY, TP1_KEY), new Callback<Map<ByteBuffer, ByteBuffer>>() {
-            @Override
-            public void onCompletion(Throwable error, Map<ByteBuffer, ByteBuffer> result) {
-                assertEquals(TP0_VALUE, result.get(TP0_KEY));
-                assertEquals(TP1_VALUE, result.get(TP1_KEY));
-                secondGetInvokedAndPassed.set(true);
-            }
-        }).get(10000, TimeUnit.MILLISECONDS);
-        assertTrue(secondGetInvokedAndPassed.get());
+        offsets = store.get(Arrays.asList(TP0_KEY, TP1_KEY)).get(10000, TimeUnit.MILLISECONDS);
+        assertEquals(TP0_VALUE, offsets.get(TP0_KEY));
+        assertEquals(TP1_VALUE, offsets.get(TP1_KEY));
 
         // Getting data should read to end of our published data and return it
-        final AtomicBoolean thirdGetInvokedAndPassed = new AtomicBoolean(false);
-        store.get(Arrays.asList(TP0_KEY, TP1_KEY), new Callback<Map<ByteBuffer, ByteBuffer>>() {
+        offsets = store.get(Arrays.asList(TP0_KEY, TP1_KEY)).get(10000, TimeUnit.MILLISECONDS);
+        assertEquals(TP0_VALUE_NEW, offsets.get(TP0_KEY));
+        assertEquals(TP1_VALUE_NEW, offsets.get(TP1_KEY));
+
+        store.stop();
+
+        PowerMock.verifyAll();
+    }
+
+    @Test
+    public void testGetSetNull() throws Exception {
+        expectConfigure();
+        expectStart(Collections.emptyList());
+
+        // Set offsets
+        Capture<org.apache.kafka.clients.producer.Callback> callback0 = EasyMock.newCapture();
+        storeLog.send(EasyMock.isNull(byte[].class), EasyMock.aryEq(TP0_VALUE.array()), EasyMock.capture(callback0));
+        PowerMock.expectLastCall();
+        Capture<org.apache.kafka.clients.producer.Callback> callback1 = EasyMock.newCapture();
+        storeLog.send(EasyMock.aryEq(TP1_KEY.array()), EasyMock.isNull(byte[].class), EasyMock.capture(callback1));
+        PowerMock.expectLastCall();
+
+        // Second get() should get the produced data and return the new values
+        final Capture<Callback<Void>> secondGetReadToEndCallback = EasyMock.newCapture();
+        storeLog.readToEnd(EasyMock.capture(secondGetReadToEndCallback));
+        PowerMock.expectLastCall().andAnswer(() -> {
+            capturedConsumedCallback.getValue().onCompletion(null, new ConsumerRecord<>(TOPIC, 0, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, (byte[]) null, TP0_VALUE.array()));
+            capturedConsumedCallback.getValue().onCompletion(null, new ConsumerRecord<>(TOPIC, 1, 0, 0L, TimestampType.CREATE_TIME, 0L, 0, 0, TP1_KEY.array(), (byte[]) null));
+            secondGetReadToEndCallback.getValue().onCompletion(null, null);
+            return null;
+        });
+
+        expectStop();
+
+        PowerMock.replayAll();
+
+        store.configure(DEFAULT_DISTRIBUTED_CONFIG);
+        store.start();
+
+        // Set offsets using null keys and values
+        Map<ByteBuffer, ByteBuffer> toSet = new HashMap<>();
+        toSet.put(null, TP0_VALUE);
+        toSet.put(TP1_KEY, null);
+        final AtomicBoolean invoked = new AtomicBoolean(false);
+        Future<Void> setFuture = store.set(toSet, new Callback<Void>() {
             @Override
-            public void onCompletion(Throwable error, Map<ByteBuffer, ByteBuffer> result) {
-                assertEquals(TP0_VALUE_NEW, result.get(TP0_KEY));
-                assertEquals(TP1_VALUE_NEW, result.get(TP1_KEY));
-                thirdGetInvokedAndPassed.set(true);
+            public void onCompletion(Throwable error, Void result) {
+                invoked.set(true);
             }
-        }).get(10000, TimeUnit.MILLISECONDS);
-        assertTrue(thirdGetInvokedAndPassed.get());
+        });
+        assertFalse(setFuture.isDone());
+        // Out of order callbacks shouldn't matter, should still require all to be invoked before invoking the callback
+        // for the store's set callback
+        callback1.getValue().onCompletion(null, null);
+        assertFalse(invoked.get());
+        callback0.getValue().onCompletion(null, null);
+        setFuture.get(10000, TimeUnit.MILLISECONDS);
+        assertTrue(invoked.get());
+
+        // Getting data should read to end of our published data and return it
+        Map<ByteBuffer, ByteBuffer> offsets = store.get(Arrays.asList(null, TP1_KEY)).get(10000, TimeUnit.MILLISECONDS);
+        assertEquals(TP0_VALUE, offsets.get(null));
+        assertNull(offsets.get(TP1_KEY));
 
         store.stop();
 
@@ -344,7 +390,7 @@ public class KafkaOffsetBackingStoreTest {
     @Test
     public void testSetFailure() throws Exception {
         expectConfigure();
-        expectStart(Collections.EMPTY_LIST);
+        expectStart(Collections.emptyList());
         expectStop();
 
         // Set offsets
@@ -403,7 +449,8 @@ public class KafkaOffsetBackingStoreTest {
 
     private void expectConfigure() throws Exception {
         PowerMock.expectPrivate(store, "createKafkaBasedLog", EasyMock.capture(capturedTopic), EasyMock.capture(capturedProducerProps),
-                EasyMock.capture(capturedConsumerProps), EasyMock.capture(capturedConsumedCallback))
+                EasyMock.capture(capturedConsumerProps), EasyMock.capture(capturedConsumedCallback),
+                EasyMock.capture(capturedNewTopic), EasyMock.capture(capturedAdminProps))
                 .andReturn(storeLog);
     }
 

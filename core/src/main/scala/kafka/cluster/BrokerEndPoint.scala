@@ -19,12 +19,16 @@ package kafka.cluster
 import java.nio.ByteBuffer
 
 import kafka.api.ApiUtils._
-import kafka.common.KafkaException
+import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.utils.Utils._
 
 object BrokerEndPoint {
 
+<<<<<<< HEAD
   private val uriParseExp = """\[?([0-9a-zA-Z\-%.:]*)\]?:([0-9]+)""".r
+=======
+  private val uriParseExp = """\[?([0-9a-zA-Z\-%._:]*)\]?:([0-9]+)""".r
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
   /**
    * BrokerEndPoint URI is host:port or [ipv6_host]:port
@@ -32,7 +36,7 @@ object BrokerEndPoint {
    */
   def parseHostPort(connectionString: String): Option[(String, Int)] = {
     connectionString match {
-      case uriParseExp(host, port) => try Some(host, port.toInt) catch { case e: NumberFormatException => None }
+      case uriParseExp(host, port) => try Some(host, port.toInt) catch { case _: NumberFormatException => None }
       case _ => None
     }
   }
@@ -76,4 +80,8 @@ case class BrokerEndPoint(id: Int, host: String, port: Int) {
     4 + /* broker Id */
     4 + /* port */
     shortStringLength(host)
+
+  override def toString: String = {
+    s"BrokerEndPoint(id=$id, host=$host:$port)"
+  }
 }

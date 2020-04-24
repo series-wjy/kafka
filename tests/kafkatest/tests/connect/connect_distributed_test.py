@@ -14,8 +14,13 @@
 # limitations under the License.
 
 from ducktape.tests.test import Test
+from ducktape.mark.resource import cluster
+from ducktape.utils.util import wait_until
+from ducktape.mark import matrix, parametrize
+from ducktape.cluster.remoteaccount import RemoteCommandError
 
 from kafkatest.services.zookeeper import ZookeeperService
+<<<<<<< HEAD
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.connect import ConnectDistributedService, VerifiableSource, VerifiableSink, ConnectRestError, MockSink, MockSource
 from kafkatest.services.console_consumer import ConsoleConsumer
@@ -25,6 +30,19 @@ from ducktape.mark import matrix
 import subprocess, itertools, time
 from collections import Counter
 import operator
+=======
+from kafkatest.services.kafka import KafkaService, config_property
+from kafkatest.services.connect import ConnectDistributedService, VerifiableSource, VerifiableSink, ConnectRestError, MockSink, MockSource
+from kafkatest.services.console_consumer import ConsoleConsumer
+from kafkatest.services.security.security_config import SecurityConfig
+from kafkatest.version import DEV_BRANCH, LATEST_2_3, LATEST_2_2, LATEST_2_1, LATEST_2_0, LATEST_1_1, LATEST_1_0, LATEST_0_11_0, LATEST_0_10_2, LATEST_0_10_1, LATEST_0_10_0, LATEST_0_9, LATEST_0_8_2, KafkaVersion
+
+from collections import Counter, namedtuple
+import itertools
+import json
+import operator
+import time
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
 class ConnectDistributedTest(Test):
     """
@@ -40,8 +58,15 @@ class ConnectDistributedTest(Test):
 
     TOPIC = "test"
     OFFSETS_TOPIC = "connect-offsets"
+    OFFSETS_REPLICATION_FACTOR = "1"
+    OFFSETS_PARTITIONS = "1"
     CONFIG_TOPIC = "connect-configs"
+    CONFIG_REPLICATION_FACTOR = "1"
     STATUS_TOPIC = "connect-status"
+    STATUS_REPLICATION_FACTOR = "1"
+    STATUS_PARTITIONS = "1"
+    SCHEDULED_REBALANCE_MAX_DELAY_MS = "60000"
+    CONNECT_PROTOCOL="sessioned"
 
     # Since tasks can be assigned to any node and we're testing with files, we need to make sure the content is the same
     # across all nodes.
@@ -57,7 +82,7 @@ class ConnectDistributedTest(Test):
         self.num_zk = 1
         self.num_brokers = 1
         self.topics = {
-            'test' : { 'partitions': 1, 'replication-factor': 1 }
+            self.TOPIC: {'partitions': 1, 'replication-factor': 1}
         }
 
         self.zk = ZookeeperService(test_context, self.num_zk)
@@ -66,10 +91,14 @@ class ConnectDistributedTest(Test):
         self.value_converter = "org.apache.kafka.connect.json.JsonConverter"
         self.schemas = True
 
-    def setup_services(self, security_protocol=SecurityConfig.PLAINTEXT):
+    def setup_services(self, security_protocol=SecurityConfig.PLAINTEXT, timestamp_type=None, broker_version=DEV_BRANCH, auto_create_topics=False):
         self.kafka = KafkaService(self.test_context, self.num_brokers, self.zk,
                                   security_protocol=security_protocol, interbroker_security_protocol=security_protocol,
-                                  topics=self.topics)
+                                  topics=self.topics, version=broker_version,
+                                  server_prop_overides=[["auto.create.topics.enable", str(auto_create_topics)]])
+        if timestamp_type is not None:
+            for node in self.kafka.nodes:
+                node.config[config_property.MESSAGE_TIMESTAMP_TYPE] = timestamp_type
 
         self.cc = ConnectDistributedService(self.test_context, 3, self.kafka, [self.INPUT_FILE, self.OUTPUT_FILE])
         self.cc.log_level = "DEBUG"
@@ -122,6 +151,7 @@ class ConnectDistributedTest(Test):
     def is_paused(self, connector, node=None):
         status = self._connector_status(connector.name, node)
         return self._connector_has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
+<<<<<<< HEAD
 
     def connector_is_running(self, connector, node=None):
         status = self._connector_status(connector.name, node)
@@ -287,14 +317,194 @@ class ConnectDistributedTest(Test):
         for node in self.cc.nodes:
             wait_until(lambda: self.is_paused(self.source, node), timeout_sec=30,
                        err_msg="Failed to see connector startup in PAUSED state")
+=======
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
-    @matrix(security_protocol=[SecurityConfig.PLAINTEXT, SecurityConfig.SASL_SSL])
-    def test_file_source_and_sink(self, security_protocol):
+    def connector_is_running(self, connector, node=None):
+        status = self._connector_status(connector.name, node)
+        return self._connector_has_state(status, 'RUNNING')
+
+    def connector_is_failed(self, connector, node=None):
+        status = self._connector_status(connector.name, node)
+        return self._connector_has_state(status, 'FAILED')
+
+    def task_is_failed(self, connector, task_id, node=None):
+        status = self._connector_status(connector.name, node)
+        return self._task_has_state(task_id, status, 'FAILED')
+
+    def task_is_running(self, connector, task_id, node=None):
+        status = self._connector_status(connector.name, node)
+        return self._task_has_state(task_id, status, 'RUNNING')
+
+    @cluster(num_nodes=5)
+    @matrix(connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_restart_failed_connector(self, connect_protocol):
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.sink = MockSink(self.cc, self.topics.keys(), mode='connector-failure', delay_sec=5)
+        self.sink.start()
+
+        wait_until(lambda: self.connector_is_failed(self.sink), timeout_sec=15,
+                   err_msg="Failed to see connector transition to the FAILED state")
+
+        self.cc.restart_connector(self.sink.name)
+        
+        wait_until(lambda: self.connector_is_running(self.sink), timeout_sec=10,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+
+    @cluster(num_nodes=5)
+    @matrix(connector_type=['source', 'sink'], connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_restart_failed_task(self, connector_type, connect_protocol):
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        connector = None
+        if connector_type == "sink":
+            connector = MockSink(self.cc, self.topics.keys(), mode='task-failure', delay_sec=5)
+        else:
+            connector = MockSource(self.cc, mode='task-failure', delay_sec=5)
+            
+        connector.start()
+
+        task_id = 0
+        wait_until(lambda: self.task_is_failed(connector, task_id), timeout_sec=20,
+                   err_msg="Failed to see task transition to the FAILED state")
+
+        self.cc.restart_task(connector.name, task_id)
+        
+        wait_until(lambda: self.task_is_running(connector, task_id), timeout_sec=10,
+                   err_msg="Failed to see task transition to the RUNNING state")
+
+    @cluster(num_nodes=5)
+    @matrix(connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_pause_and_resume_source(self, connect_protocol):
+        """
+        Verify that source connectors stop producing records when paused and begin again after
+        being resumed.
+        """
+
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.source = VerifiableSource(self.cc, topic=self.TOPIC)
+        self.source.start()
+
+        wait_until(lambda: self.is_running(self.source), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+        
+        self.cc.pause_connector(self.source.name)
+
+        # wait until all nodes report the paused transition
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_paused(self.source, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the PAUSED state")
+
+        # verify that we do not produce new messages while paused
+        num_messages = len(self.source.sent_messages())
+        time.sleep(10)
+        assert num_messages == len(self.source.sent_messages()), "Paused source connector should not produce any messages"
+
+        self.cc.resume_connector(self.source.name)
+
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_running(self.source, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the RUNNING state")
+
+        # after resuming, we should see records produced again
+        wait_until(lambda: len(self.source.sent_messages()) > num_messages, timeout_sec=30,
+                   err_msg="Failed to produce messages after resuming source connector")
+
+    @cluster(num_nodes=5)
+    @matrix(connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_pause_and_resume_sink(self, connect_protocol):
+        """
+        Verify that sink connectors stop consuming records when paused and begin again after
+        being resumed.
+        """
+
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        # use the verifiable source to produce a steady stream of messages
+        self.source = VerifiableSource(self.cc, topic=self.TOPIC)
+        self.source.start()
+
+        wait_until(lambda: len(self.source.committed_messages()) > 0, timeout_sec=30,
+                   err_msg="Timeout expired waiting for source task to produce a message")
+
+        self.sink = VerifiableSink(self.cc, topics=[self.TOPIC])
+        self.sink.start()
+
+        wait_until(lambda: self.is_running(self.sink), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+        
+        self.cc.pause_connector(self.sink.name)
+
+        # wait until all nodes report the paused transition
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_paused(self.sink, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the PAUSED state")
+
+        # verify that we do not consume new messages while paused
+        num_messages = len(self.sink.received_messages())
+        time.sleep(10)
+        assert num_messages == len(self.sink.received_messages()), "Paused sink connector should not consume any messages"
+
+        self.cc.resume_connector(self.sink.name)
+
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_running(self.sink, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the RUNNING state")
+
+        # after resuming, we should see records consumed again
+        wait_until(lambda: len(self.sink.received_messages()) > num_messages, timeout_sec=30,
+                   err_msg="Failed to consume messages after resuming sink connector")
+
+    @cluster(num_nodes=5)
+    @matrix(connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_pause_state_persistent(self, connect_protocol):
+        """
+        Verify that paused state is preserved after a cluster restart.
+        """
+
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.source = VerifiableSource(self.cc, topic=self.TOPIC)
+        self.source.start()
+
+        wait_until(lambda: self.is_running(self.source), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+        
+        self.cc.pause_connector(self.source.name)
+
+        self.cc.restart()
+
+        # we should still be paused after restarting
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_paused(self.source, node), timeout_sec=120,
+                       err_msg="Failed to see connector startup in PAUSED state")
+
+    @cluster(num_nodes=6)
+    @matrix(security_protocol=[SecurityConfig.PLAINTEXT, SecurityConfig.SASL_SSL], connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_file_source_and_sink(self, security_protocol, connect_protocol):
         """
         Tests that a basic file connector works across clean rolling bounces. This validates that the connector is
         correctly created, tasks instantiated, and as nodes restart the work is rebalanced across nodes.
         """
 
+        self.CONNECT_PROTOCOL = connect_protocol
         self.setup_services(security_protocol=security_protocol)
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
 
@@ -317,24 +527,29 @@ class ConnectDistributedTest(Test):
 
         for node in self.cc.nodes:
             node.account.ssh("echo -e -n " + repr(self.SECOND_INPUTS) + " >> " + self.INPUT_FILE)
-        wait_until(lambda: self._validate_file_output(self.FIRST_INPUT_LIST + self.SECOND_INPUT_LIST), timeout_sec=70, err_msg="Sink output file never converged to the same state as the input file")
+        wait_until(lambda: self._validate_file_output(self.FIRST_INPUT_LIST + self.SECOND_INPUT_LIST), timeout_sec=150, err_msg="Sink output file never converged to the same state as the input file")
 
-
-    @matrix(clean=[True, False])
-    def test_bounce(self, clean):
+    @cluster(num_nodes=6)
+    @matrix(clean=[True, False], connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_bounce(self, clean, connect_protocol):
         """
         Validates that source and sink tasks that run continuously and produce a predictable sequence of messages
         run correctly and deliver messages exactly once when Kafka Connect workers undergo clean rolling bounces.
         """
         num_tasks = 3
 
+        self.CONNECT_PROTOCOL = connect_protocol
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
+<<<<<<< HEAD
         self.source = VerifiableSource(self.cc, tasks=num_tasks, throughput=100)
+=======
+        self.source = VerifiableSource(self.cc, topic=self.TOPIC, tasks=num_tasks, throughput=100)
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         self.source.start()
-        self.sink = VerifiableSink(self.cc, tasks=num_tasks)
+        self.sink = VerifiableSink(self.cc, tasks=num_tasks, topics=[self.TOPIC])
         self.sink.start()
 
         for _ in range(3):
@@ -428,7 +643,113 @@ class ConnectDistributedTest(Test):
 
         assert success, "Found validation errors:\n" + "\n  ".join(errors)
 
+    @cluster(num_nodes=6)
+    @matrix(connect_protocol=['sessioned', 'compatible', 'eager'])
+    def test_transformations(self, connect_protocol):
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services(timestamp_type='CreateTime')
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
 
+        ts_fieldname = 'the_timestamp'
+
+        NamedConnector = namedtuple('Connector', ['name'])
+
+        source_connector = NamedConnector(name='file-src')
+
+        self.cc.create_connector({
+            'name': source_connector.name,
+            'connector.class': 'org.apache.kafka.connect.file.FileStreamSourceConnector',
+            'tasks.max': 1,
+            'file': self.INPUT_FILE,
+            'topic': self.TOPIC,
+            'transforms': 'hoistToStruct,insertTimestampField',
+            'transforms.hoistToStruct.type': 'org.apache.kafka.connect.transforms.HoistField$Value',
+            'transforms.hoistToStruct.field': 'content',
+            'transforms.insertTimestampField.type': 'org.apache.kafka.connect.transforms.InsertField$Value',
+            'transforms.insertTimestampField.timestamp.field': ts_fieldname,
+        })
+
+        wait_until(lambda: self.connector_is_running(source_connector), timeout_sec=30, err_msg='Failed to see connector transition to the RUNNING state')
+
+        for node in self.cc.nodes:
+            node.account.ssh("echo -e -n " + repr(self.FIRST_INPUTS) + " >> " + self.INPUT_FILE)
+
+        consumer = ConsoleConsumer(self.test_context, 1, self.kafka, self.TOPIC, consumer_timeout_ms=15000, print_timestamp=True)
+        consumer.run()
+
+        assert len(consumer.messages_consumed[1]) == len(self.FIRST_INPUT_LIST)
+
+        expected_schema = {
+            'type': 'struct',
+            'fields': [
+                {'field': 'content', 'type': 'string', 'optional': False},
+                {'field': ts_fieldname, 'name': 'org.apache.kafka.connect.data.Timestamp', 'type': 'int64', 'version': 1, 'optional': True},
+            ],
+            'optional': False
+        }
+
+        for msg in consumer.messages_consumed[1]:
+            (ts_info, value) = msg.split('\t')
+
+            assert ts_info.startswith('CreateTime:')
+            ts = int(ts_info[len('CreateTime:'):])
+
+            obj = json.loads(value)
+            assert obj['schema'] == expected_schema
+            assert obj['payload']['content'] in self.FIRST_INPUT_LIST
+            assert obj['payload'][ts_fieldname] == ts
+
+    @cluster(num_nodes=5)
+    @parametrize(broker_version=str(DEV_BRANCH), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='sessioned')
+    @parametrize(broker_version=str(LATEST_0_11_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='sessioned')
+    @parametrize(broker_version=str(LATEST_0_10_2), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='sessioned')
+    @parametrize(broker_version=str(LATEST_0_10_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='sessioned')
+    @parametrize(broker_version=str(LATEST_0_10_0), auto_create_topics=True, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='sessioned')
+    @parametrize(broker_version=str(DEV_BRANCH), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_2_3), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_2_2), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_2_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_2_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_1_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_1_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_0_11_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_0_10_2), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_0_10_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(LATEST_0_10_0), auto_create_topics=True, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='compatible')
+    @parametrize(broker_version=str(DEV_BRANCH), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_2_3), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_2_2), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_2_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_2_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_1_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_1_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_0_11_0), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_0_10_2), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_0_10_1), auto_create_topics=False, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    @parametrize(broker_version=str(LATEST_0_10_0), auto_create_topics=True, security_protocol=SecurityConfig.PLAINTEXT, connect_protocol='eager')
+    def test_broker_compatibility(self, broker_version, auto_create_topics, security_protocol, connect_protocol):
+        """
+        Verify that Connect will start up with various broker versions with various configurations. 
+        When Connect distributed starts up, it either creates internal topics (v0.10.1.0 and after) 
+        or relies upon the broker to auto-create the topics (v0.10.0.x and before).
+        """
+        self.CONNECT_PROTOCOL = connect_protocol
+        self.setup_services(broker_version=KafkaVersion(broker_version), auto_create_topics=auto_create_topics, security_protocol=security_protocol)
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+
+        self.cc.start()
+
+        self.logger.info("Creating connectors")
+        self._start_connector("connect-file-source.properties")
+        self._start_connector("connect-file-sink.properties")
+
+        # Generating data on the source node should generate new records and create new output on the sink node. Timeouts
+        # here need to be more generous than they are for standalone mode because a) it takes longer to write configs,
+        # do rebalancing of the group, etc, and b) without explicit leave group support, rebalancing takes awhile
+        for node in self.cc.nodes:
+            node.account.ssh("echo -e -n " + repr(self.FIRST_INPUTS) + " >> " + self.INPUT_FILE)
+        wait_until(lambda: self._validate_file_output(self.FIRST_INPUT_LIST), timeout_sec=70, err_msg="Data added to input file was not seen in the output file in a reasonable amount of time.")
 
     def _validate_file_output(self, input):
         input_set = set(input)
@@ -441,8 +762,8 @@ class ConnectDistributedTest(Test):
 
     def _file_contents(self, node, file):
         try:
-            # Convert to a list here or the CalledProcessError may be returned during a call to the generator instead of
+            # Convert to a list here or the RemoteCommandError may be returned during a call to the generator instead of
             # immediately
             return list(node.account.ssh_capture("cat " + file))
-        except subprocess.CalledProcessError:
+        except RemoteCommandError:
             return []

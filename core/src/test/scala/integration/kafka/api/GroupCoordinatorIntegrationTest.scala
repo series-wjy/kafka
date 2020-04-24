@@ -10,16 +10,24 @@
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
  */
+<<<<<<< HEAD
 package integration.kafka.api
 
 import kafka.common.TopicAndPartition
 import kafka.integration.KafkaServerTestHarness
 import kafka.log.Log
 import kafka.message.GZIPCompressionCodec
+=======
+package kafka.api
+
+import kafka.integration.KafkaServerTestHarness
+import kafka.log.Log
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
+<<<<<<< HEAD
 import org.apache.kafka.common.internals.TopicConstants
 import org.apache.kafka.common.protocol.SecurityProtocol
 import org.junit.Test
@@ -33,12 +41,29 @@ class GroupCoordinatorIntegrationTest extends KafkaServerTestHarness {
   val overridingProps = new Properties()
   overridingProps.put(KafkaConfig.OffsetsTopicPartitionsProp, "1")
   overridingProps.put(KafkaConfig.OffsetsTopicCompressionCodecProp, offsetsTopicCompressionCodec.codec.toString)
+=======
+import org.junit.Test
+import org.junit.Assert._
+
+import scala.jdk.CollectionConverters._
+import java.util.Properties
+
+import org.apache.kafka.common.internals.Topic
+import org.apache.kafka.common.record.CompressionType
+
+class GroupCoordinatorIntegrationTest extends KafkaServerTestHarness {
+  val offsetsTopicCompressionCodec = CompressionType.GZIP
+  val overridingProps = new Properties()
+  overridingProps.put(KafkaConfig.OffsetsTopicPartitionsProp, "1")
+  overridingProps.put(KafkaConfig.OffsetsTopicCompressionCodecProp, offsetsTopicCompressionCodec.id.toString)
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
   override def generateConfigs = TestUtils.createBrokerConfigs(1, zkConnect, enableControlledShutdown = false).map {
     KafkaConfig.fromProps(_, overridingProps)
   }
 
   @Test
+<<<<<<< HEAD
   def testGroupCoordinatorPropagatesOfffsetsTopicCompressionCodec() {
     val consumer = TestUtils.createNewConsumer(TestUtils.getBrokerListStrFromServers(servers),
                                                securityProtocol = SecurityProtocol.PLAINTEXT)
@@ -56,6 +81,25 @@ class GroupCoordinatorIntegrationTest extends KafkaServerTestHarness {
 
     val logSegments = getGroupMetadataLogOpt.get.logSegments
     val incorrectCompressionCodecs = logSegments.flatMap(_.log.map(_.message.compressionCodec)).filter(_ != offsetsTopicCompressionCodec)
+=======
+  def testGroupCoordinatorPropagatesOffsetsTopicCompressionCodec(): Unit = {
+    val consumer = TestUtils.createConsumer(TestUtils.getBrokerListStrFromServers(servers))
+    val offsetMap = Map(
+      new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, 0) -> new OffsetAndMetadata(10, "")
+    ).asJava
+    consumer.commitSync(offsetMap)
+    val logManager = servers.head.getLogManager
+    def getGroupMetadataLogOpt: Option[Log] =
+      logManager.getLog(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, 0))
+
+    TestUtils.waitUntilTrue(() => getGroupMetadataLogOpt.exists(_.logSegments.exists(_.log.batches.asScala.nonEmpty)),
+                            "Commit message not appended in time")
+
+    val logSegments = getGroupMetadataLogOpt.get.logSegments
+    val incorrectCompressionCodecs = logSegments
+      .flatMap(_.log.batches.asScala.map(_.compressionType))
+      .filter(_ != offsetsTopicCompressionCodec)
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
     assertEquals("Incorrect compression codecs should be empty", Seq.empty, incorrectCompressionCodecs)
 
     consumer.close()

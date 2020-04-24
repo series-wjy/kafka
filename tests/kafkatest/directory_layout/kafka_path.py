@@ -16,7 +16,11 @@
 import importlib
 import os
 
+<<<<<<< HEAD
 from kafkatest.version import get_version, KafkaVersion, TRUNK
+=======
+from kafkatest.version import get_version, KafkaVersion, DEV_BRANCH
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
 
 """This module serves a few purposes:
@@ -43,7 +47,11 @@ TOOLS_JAR_NAME = "tools"
 TOOLS_DEPENDANT_TEST_LIBS_JAR_NAME = "tools-dependant-libs"
 
 JARS = {
+<<<<<<< HEAD
     "trunk": {
+=======
+    "dev": {
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         CORE_JAR_NAME: "core/build/*/*.jar",
         CORE_LIBS_JAR_NAME: "core/build/libs/*.jar",
         CORE_DEPENDANT_TEST_LIBS_JAR_NAME: "core/build/dependant-testlibs/*.jar",
@@ -97,7 +105,11 @@ class KafkaPathResolverMixin(object):
 class KafkaSystemTestPathResolver(object):
     """Path resolver for Kafka system tests which assumes the following layout:
 
+<<<<<<< HEAD
         /opt/kafka-trunk        # Current version of kafka under test
+=======
+        /opt/kafka-dev          # Current version of kafka under test
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         /opt/kafka-0.9.0.1      # Example of an older version of kafka installed from tarball
         /opt/kafka-<version>    # Other previous versions of kafka
         ...
@@ -106,14 +118,21 @@ class KafkaSystemTestPathResolver(object):
         self.context = context
         self.project = project
 
+<<<<<<< HEAD
     def home(self, node_or_version=TRUNK):
         version = self._version(node_or_version)
         home_dir = self.project
+=======
+    def home(self, node_or_version=DEV_BRANCH, project=None):
+        version = self._version(node_or_version)
+        home_dir = project or self.project
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         if version is not None:
             home_dir += "-%s" % str(version)
 
         return os.path.join(KAFKA_INSTALL_ROOT, home_dir)
 
+<<<<<<< HEAD
     def bin(self, node_or_version=TRUNK):
         version = self._version(node_or_version)
         return os.path.join(self.home(version), "bin")
@@ -125,6 +144,19 @@ class KafkaSystemTestPathResolver(object):
     def jar(self, jar_name, node_or_version=TRUNK):
         version = self._version(node_or_version)
         return os.path.join(self.home(version), JARS[str(version)][jar_name])
+=======
+    def bin(self, node_or_version=DEV_BRANCH, project=None):
+        version = self._version(node_or_version)
+        return os.path.join(self.home(version, project=project), "bin")
+
+    def script(self, script_name, node_or_version=DEV_BRANCH, project=None):
+        version = self._version(node_or_version)
+        return os.path.join(self.bin(version, project=project), script_name)
+
+    def jar(self, jar_name, node_or_version=DEV_BRANCH, project=None):
+        version = self._version(node_or_version)
+        return os.path.join(self.home(version, project=project), JARS[str(version)][jar_name])
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
     def scratch_space(self, service_instance):
         return os.path.join(SCRATCH_ROOT, service_instance.service_id)

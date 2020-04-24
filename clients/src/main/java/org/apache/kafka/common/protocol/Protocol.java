@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -16,9 +16,11 @@
  */
 package org.apache.kafka.common.protocol;
 
-import org.apache.kafka.common.protocol.types.ArrayOf;
-import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.message.RequestHeaderData;
+import org.apache.kafka.common.message.ResponseHeaderData;
+import org.apache.kafka.common.protocol.types.BoundField;
 import org.apache.kafka.common.protocol.types.Schema;
+import org.apache.kafka.common.protocol.types.TaggedFields;
 import org.apache.kafka.common.protocol.types.Type;
 
 import java.util.LinkedHashMap;
@@ -26,17 +28,9 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-import static org.apache.kafka.common.protocol.types.Type.BOOLEAN;
-import static org.apache.kafka.common.protocol.types.Type.BYTES;
-import static org.apache.kafka.common.protocol.types.Type.INT16;
-import static org.apache.kafka.common.protocol.types.Type.INT32;
-import static org.apache.kafka.common.protocol.types.Type.INT64;
-import static org.apache.kafka.common.protocol.types.Type.INT8;
-import static org.apache.kafka.common.protocol.types.Type.STRING;
-import static org.apache.kafka.common.protocol.types.Type.NULLABLE_STRING;
-
 public class Protocol {
 
+<<<<<<< HEAD
     public static final Schema REQUEST_HEADER = new Schema(new Field("api_key", INT16, "The id of the request type."),
                                                            new Field("api_version", INT16, "The version of the API."),
                                                            new Field("correlation_id",
@@ -852,6 +846,8 @@ public class Protocol {
         return apiKey < CURR_VERSION.length && apiVersion >= MIN_VERSIONS[apiKey] && apiVersion <= CURR_VERSION[apiKey];
     }
 
+=======
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
     private static String indentString(int size) {
         StringBuilder b = new StringBuilder(size);
         for (int i = 0; i < size; i++)
@@ -864,24 +860,22 @@ public class Protocol {
         final Map<String, Type> subTypes = new LinkedHashMap<>();
 
         // Top level fields
-        for (Field field: schema.fields()) {
-            if (field.type instanceof ArrayOf) {
+        for (BoundField field: schema.fields()) {
+            Type type = field.def.type;
+            if (type.isArray()) {
                 b.append("[");
-                b.append(field.name);
+                b.append(field.def.name);
                 b.append("] ");
-                Type innerType = ((ArrayOf) field.type).type();
-                if (!subTypes.containsKey(field.name))
-                    subTypes.put(field.name, innerType);
-            } else if (field.type instanceof Schema) {
-                b.append(field.name);
-                b.append(" ");
-                if (!subTypes.containsKey(field.name))
-                    subTypes.put(field.name, field.type);
+                if (!subTypes.containsKey(field.def.name)) {
+                    subTypes.put(field.def.name, type.arrayElementType().get());
+                }
+            } else if (type instanceof TaggedFields) {
+                b.append("TAG_BUFFER ");
             } else {
-                b.append(field.name);
+                b.append(field.def.name);
                 b.append(" ");
-                if (!subTypes.containsKey(field.name))
-                    subTypes.put(field.name, field.type);
+                if (!subTypes.containsKey(field.def.name))
+                    subTypes.put(field.def.name, type);
             }
         }
         b.append("\n");
@@ -905,20 +899,20 @@ public class Protocol {
         }
     }
 
-    private static void populateSchemaFields(Schema schema, Set<Field> fields) {
-        for (Field field: schema.fields()) {
+    private static void populateSchemaFields(Schema schema, Set<BoundField> fields) {
+        for (BoundField field: schema.fields()) {
             fields.add(field);
-            if (field.type instanceof ArrayOf) {
-                Type innerType = ((ArrayOf) field.type).type();
+            if (field.def.type.isArray()) {
+                Type innerType = field.def.type.arrayElementType().get();
                 if (innerType instanceof Schema)
                     populateSchemaFields((Schema) innerType, fields);
-            } else if (field.type instanceof Schema)
-                populateSchemaFields((Schema) field.type, fields);
+            } else if (field.def.type instanceof Schema)
+                populateSchemaFields((Schema) field.def.type, fields);
         }
     }
 
     private static void schemaToFieldTableHtml(Schema schema, StringBuilder b) {
-        Set<Field> fields = new LinkedHashSet<>();
+        Set<BoundField> fields = new LinkedHashSet<>();
         populateSchemaFields(schema, fields);
 
         b.append("<table class=\"data-table\"><tbody>\n");
@@ -926,13 +920,13 @@ public class Protocol {
         b.append("<th>Field</th>\n");
         b.append("<th>Description</th>\n");
         b.append("</tr>");
-        for (Field field : fields) {
+        for (BoundField field : fields) {
             b.append("<tr>\n");
             b.append("<td>");
-            b.append(field.name);
+            b.append(field.def.name);
             b.append("</td>");
             b.append("<td>");
-            b.append(field.doc);
+            b.append(field.def.docString);
             b.append("</td>");
             b.append("</tr>\n");
         }
@@ -943,28 +937,31 @@ public class Protocol {
         final StringBuilder b = new StringBuilder();
         b.append("<h5>Headers:</h5>\n");
 
-        b.append("<pre>");
-        b.append("Request Header => ");
-        schemaToBnfHtml(REQUEST_HEADER, b, 2);
-        b.append("</pre>\n");
-        schemaToFieldTableHtml(REQUEST_HEADER, b);
-
-        b.append("<pre>");
-        b.append("Response Header => ");
-        schemaToBnfHtml(RESPONSE_HEADER, b, 2);
-        b.append("</pre>\n");
-        schemaToFieldTableHtml(RESPONSE_HEADER, b);
-
+        for (int i = 0; i < RequestHeaderData.SCHEMAS.length; i++) {
+            b.append("<pre>");
+            b.append("Request Header v").append(i).append(" => ");
+            schemaToBnfHtml(RequestHeaderData.SCHEMAS[i], b, 2);
+            b.append("</pre>\n");
+            schemaToFieldTableHtml(RequestHeaderData.SCHEMAS[i], b);
+        }
+        for (int i = 0; i < ResponseHeaderData.SCHEMAS.length; i++) {
+            b.append("<pre>");
+            b.append("Response Header v").append(i).append(" => ");
+            schemaToBnfHtml(ResponseHeaderData.SCHEMAS[i], b, 2);
+            b.append("</pre>\n");
+            schemaToFieldTableHtml(ResponseHeaderData.SCHEMAS[i], b);
+        }
         for (ApiKeys key : ApiKeys.values()) {
             // Key
             b.append("<h5>");
+            b.append("<a name=\"The_Messages_" + key.name + "\">");
             b.append(key.name);
             b.append(" API (Key: ");
             b.append(key.id);
-            b.append("):</h5>\n\n");
+            b.append("):</a></h5>\n\n");
             // Requests
             b.append("<b>Requests:</b><br>\n");
-            Schema[] requests = REQUESTS[key.id];
+            Schema[] requests = key.requestSchemas;
             for (int i = 0; i < requests.length; i++) {
                 Schema schema = requests[i];
                 // Schema
@@ -985,7 +982,7 @@ public class Protocol {
 
             // Responses
             b.append("<b>Responses:</b><br>\n");
-            Schema[] responses = RESPONSES[key.id];
+            Schema[] responses = key.responseSchemas;
             for (int i = 0; i < responses.length; i++) {
                 Schema schema = responses[i];
                 // Schema

@@ -17,6 +17,7 @@ from ducktape.services.background_thread import BackgroundThreadService
 
 from kafkatest.directory_layout.kafka_path import KafkaPathResolverMixin
 from kafkatest.services.security.security_config import SecurityConfig
+from kafkatest.services.kafka.util import fix_opts_for_new_jvm
 
 
 class KafkaLog4jAppender(KafkaPathResolverMixin, BackgroundThreadService):
@@ -34,7 +35,8 @@ class KafkaLog4jAppender(KafkaPathResolverMixin, BackgroundThreadService):
         self.topic = topic
         self.max_messages = max_messages
         self.security_protocol = security_protocol
-        self.security_config = SecurityConfig(security_protocol)
+        self.security_config = SecurityConfig(self.context, security_protocol)
+        self.stop_timeout_sec = 30
 
     def _worker(self, idx, node):
         cmd = self.start_cmd(node)
@@ -43,8 +45,15 @@ class KafkaLog4jAppender(KafkaPathResolverMixin, BackgroundThreadService):
         node.account.ssh(cmd)
 
     def start_cmd(self, node):
+<<<<<<< HEAD
         cmd = self.path.script("kafka-run-class.sh", node)
         cmd += " org.apache.kafka.tools.VerifiableLog4jAppender"
+=======
+        cmd = fix_opts_for_new_jvm(node)
+        cmd += self.path.script("kafka-run-class.sh", node)
+        cmd += " "
+        cmd += self.java_class_name()
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         cmd += " --topic %s --broker-list %s" % (self.topic, self.kafka.bootstrap_servers(self.security_protocol))
 
         if self.max_messages > 0:
@@ -53,7 +62,7 @@ class KafkaLog4jAppender(KafkaPathResolverMixin, BackgroundThreadService):
             cmd += " --security-protocol %s" % str(self.security_protocol)
         if self.security_protocol == SecurityConfig.SSL or self.security_protocol == SecurityConfig.SASL_SSL:
             cmd += " --ssl-truststore-location %s" % str(SecurityConfig.TRUSTSTORE_PATH)
-            cmd += " --ssl-truststore-password %s" % str(SecurityConfig.ssl_stores['ssl.truststore.password'])
+            cmd += " --ssl-truststore-password %s" % str(SecurityConfig.ssl_stores.truststore_passwd)
         if self.security_protocol == SecurityConfig.SASL_PLAINTEXT or \
                 self.security_protocol == SecurityConfig.SASL_SSL or \
                 self.security_protocol == SecurityConfig.SASL_MECHANISM_GSSAPI or \
@@ -66,12 +75,20 @@ class KafkaLog4jAppender(KafkaPathResolverMixin, BackgroundThreadService):
         return cmd
 
     def stop_node(self, node):
+<<<<<<< HEAD
         node.account.kill_process("VerifiableLog4jAppender", allow_fail=False)
+=======
+        node.account.kill_java_processes(self.java_class_name(), allow_fail=False)
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
         stopped = self.wait_node(node, timeout_sec=self.stop_timeout_sec)
         assert stopped, "Node %s: did not stop within the specified timeout of %s seconds" % \
                         (str(node.account), str(self.stop_timeout_sec))
 
     def clean_node(self, node):
-        node.account.kill_process("VerifiableLog4jAppender", clean_shutdown=False, allow_fail=False)
+        node.account.kill_java_processes(self.java_class_name(), clean_shutdown=False,
+                                         allow_fail=False)
         node.account.ssh("rm -rf /mnt/kafka_log4j_appender.log", allow_fail=False)
+
+    def java_class_name(self):
+        return "org.apache.kafka.tools.VerifiableLog4jAppender"

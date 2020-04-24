@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,245 +14,233 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.streams.processor.internals;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.I0Itec.zkclient.ZkClient;
-import org.I0Itec.zkclient.exception.ZkNoNodeException;
-import org.I0Itec.zkclient.exception.ZkNodeExistsException;
-import org.I0Itec.zkclient.serialize.ZkSerializer;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.CreateTopicsResult;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.errors.LeaderNotAvailableException;
+import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.errors.StreamsException;
-import org.apache.zookeeper.ZooDefs;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
-import java.util.Properties;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 public class InternalTopicManager {
+    private final static String INTERRUPTED_ERROR_MESSAGE = "Thread got interrupted. This indicates a bug. " +
+        "Please report at https://issues.apache.org/jira/projects/KAFKA or dev-mailing list (https://kafka.apache.org/contact).";
 
-    private static final Logger log = LoggerFactory.getLogger(InternalTopicManager.class);
-
-    // TODO: the following ZK dependency should be removed after KIP-4
-    private static final String ZK_TOPIC_PATH = "/brokers/topics";
-    private static final String ZK_BROKER_PATH = "/brokers/ids";
-    private static final String ZK_DELETE_TOPIC_PATH = "/admin/delete_topics";
-    private static final String ZK_ENTITY_CONFIG_PATH = "/config/topics";
-    // TODO: the following LogConfig dependency should be removed after KIP-4
-    private static final String CLEANUP_POLICY_PROP = "cleanup.policy";
-    private static final String COMPACT = "compact";
-
-    private final ZkClient zkClient;
-    private final int replicationFactor;
-
-    private class ZKStringSerializer implements ZkSerializer {
-
-        /**
-         * @throws AssertionError if the byte String encoding type is not supported
-         */
-        @Override
-        public byte[] serialize(Object data) {
-            try {
-                return ((String) data).getBytes("UTF-8");
-            } catch (UnsupportedEncodingException e) {
-                throw new AssertionError(e);
-            }
-        }
-
-        /**
-         * @throws AssertionError if the byte String encoding type is not supported
-         */
-        @Override
-        public Object deserialize(byte[] bytes) {
-            try {
-                if (bytes == null)
-                    return null;
-                else
-                    return new String(bytes, "UTF-8");
-            } catch (UnsupportedEncodingException e) {
-                throw new AssertionError(e);
-            }
+    private static final class InternalAdminClientConfig extends AdminClientConfig {
+        private InternalAdminClientConfig(final Map<?, ?> props) {
+            super(props, false);
         }
     }
 
-    public InternalTopicManager() {
-        this.zkClient = null;
-        this.replicationFactor = 0;
+    private final Logger log;
+    private final long windowChangeLogAdditionalRetention;
+    private final Map<String, String> defaultTopicConfigs = new HashMap<>();
+
+    private final short replicationFactor;
+    private final Admin adminClient;
+
+    private final int retries;
+    private final long retryBackOffMs;
+
+    public InternalTopicManager(final Admin adminClient, final StreamsConfig streamsConfig) {
+        this.adminClient = adminClient;
+
+        final LogContext logContext = new LogContext(String.format("stream-thread [%s] ", Thread.currentThread().getName()));
+        log = logContext.logger(getClass());
+
+        replicationFactor = streamsConfig.getInt(StreamsConfig.REPLICATION_FACTOR_CONFIG).shortValue();
+        windowChangeLogAdditionalRetention = streamsConfig.getLong(StreamsConfig.WINDOW_STORE_CHANGE_LOG_ADDITIONAL_RETENTION_MS_CONFIG);
+        final InternalAdminClientConfig dummyAdmin = new InternalAdminClientConfig(streamsConfig.getAdminConfigs("dummy"));
+        retries = dummyAdmin.getInt(AdminClientConfig.RETRIES_CONFIG);
+        retryBackOffMs = dummyAdmin.getLong(AdminClientConfig.RETRY_BACKOFF_MS_CONFIG);
+
+        log.debug("Configs:" + Utils.NL +
+            "\t{} = {}" + Utils.NL +
+            "\t{} = {}" + Utils.NL +
+            "\t{} = {}",
+            AdminClientConfig.RETRIES_CONFIG, retries,
+            StreamsConfig.REPLICATION_FACTOR_CONFIG, replicationFactor,
+            StreamsConfig.WINDOW_STORE_CHANGE_LOG_ADDITIONAL_RETENTION_MS_CONFIG, windowChangeLogAdditionalRetention);
+
+        for (final Map.Entry<String, Object> entry : streamsConfig.originalsWithPrefix(StreamsConfig.TOPIC_PREFIX).entrySet()) {
+            if (entry.getValue() != null) {
+                defaultTopicConfigs.put(entry.getKey(), entry.getValue().toString());
+            }
+        }
     }
 
-    public InternalTopicManager(String zkConnect, int replicationFactor) {
-        this.zkClient = new ZkClient(zkConnect, 30 * 1000, 30 * 1000, new ZKStringSerializer());
-        this.replicationFactor = replicationFactor;
+    /**
+     * Prepares a set of given internal topics.
+     *
+     * If a topic does not exist creates a new topic.
+     * If a topic with the correct number of partitions exists ignores it.
+     * If a topic exists already but has different number of partitions we fail and throw exception requesting user to reset the app before restarting again.
+     */
+    public void makeReady(final Map<String, InternalTopicConfig> topics) {
+        // we will do the validation / topic-creation in a loop, until we have confirmed all topics
+        // have existed with the expected number of partitions, or some create topic returns fatal errors.
+
+        int remainingRetries = retries;
+        Set<String> topicsNotReady = new HashSet<>(topics.keySet());
+
+        while (!topicsNotReady.isEmpty() && remainingRetries >= 0) {
+            topicsNotReady = validateTopics(topicsNotReady, topics);
+
+            if (!topicsNotReady.isEmpty()) {
+                final Set<NewTopic> newTopics = new HashSet<>();
+
+                for (final String topicName : topicsNotReady) {
+                    final InternalTopicConfig internalTopicConfig = Objects.requireNonNull(topics.get(topicName));
+                    final Map<String, String> topicConfig = internalTopicConfig.getProperties(defaultTopicConfigs, windowChangeLogAdditionalRetention);
+
+                    log.debug("Going to create topic {} with {} partitions and config {}.",
+                        internalTopicConfig.name(),
+                        internalTopicConfig.numberOfPartitions(),
+                        topicConfig);
+
+                    newTopics.add(
+                        new NewTopic(
+                            internalTopicConfig.name(),
+                            internalTopicConfig.numberOfPartitions(),
+                            Optional.of(replicationFactor))
+                            .configs(topicConfig));
+                }
+
+                final CreateTopicsResult createTopicsResult = adminClient.createTopics(newTopics);
+
+                for (final Map.Entry<String, KafkaFuture<Void>> createTopicResult : createTopicsResult.values().entrySet()) {
+                    final String topicName = createTopicResult.getKey();
+                    try {
+                        createTopicResult.getValue().get();
+                        topicsNotReady.remove(topicName);
+                    } catch (final InterruptedException fatalException) {
+                        // this should not happen; if it ever happens it indicate a bug
+                        Thread.currentThread().interrupt();
+                        log.error(INTERRUPTED_ERROR_MESSAGE, fatalException);
+                        throw new IllegalStateException(INTERRUPTED_ERROR_MESSAGE, fatalException);
+                    } catch (final ExecutionException executionException) {
+                        final Throwable cause = executionException.getCause();
+                        if (cause instanceof TopicExistsException) {
+                            // This topic didn't exist earlier or its leader not known before; just retain it for next round of validation.
+                            log.info("Could not create topic {}. Topic is probably marked for deletion (number of partitions is unknown).\n" +
+                                "Will retry to create this topic in {} ms (to let broker finish async delete operation first).\n" +
+                                "Error message was: {}", topicName, retryBackOffMs, cause.toString());
+                        } else {
+                            log.error("Unexpected error during topic creation for {}.\n" +
+                                "Error message was: {}", topicName, cause.toString());
+                            throw new StreamsException(String.format("Could not create topic %s.", topicName), cause);
+                        }
+                    }
+                }
+            }
+
+
+            if (!topicsNotReady.isEmpty()) {
+                log.info("Topics {} can not be made ready with {} retries left", topicsNotReady, retries);
+
+                Utils.sleep(retryBackOffMs);
+
+                remainingRetries--;
+            }
+        }
+
+        if (!topicsNotReady.isEmpty()) {
+            final String timeoutAndRetryError = String.format("Could not create topics after %d retries. " +
+                "This can happen if the Kafka cluster is temporary not available. " +
+                "You can increase admin client config `retries` to be resilient against this error.", retries);
+            log.error(timeoutAndRetryError);
+            throw new StreamsException(timeoutAndRetryError);
+        }
     }
 
-    public void makeReady(String topic, int numPartitions, boolean compactTopic) {
-        boolean topicNotReady = true;
+    /**
+     * Try to get the number of partitions for the given topics; return the number of partitions for topics that already exists.
+     *
+     * Topics that were not able to get its description will simply not be returned
+     */
+    // visible for testing
+    protected Map<String, Integer> getNumPartitions(final Set<String> topics) {
+        log.debug("Trying to check if topics {} have been created with expected number of partitions.", topics);
 
-        while (topicNotReady) {
-            Map<Integer, List<Integer>> topicMetadata = getTopicMetadata(topic);
+        final DescribeTopicsResult describeTopicsResult = adminClient.describeTopics(topics);
+        final Map<String, KafkaFuture<TopicDescription>> futures = describeTopicsResult.values();
 
-            if (topicMetadata == null) {
-                try {
-                    createTopic(topic, numPartitions, replicationFactor, compactTopic);
-                } catch (ZkNodeExistsException e) {
-                    // ignore and continue
+        final Map<String, Integer> existedTopicPartition = new HashMap<>();
+        for (final Map.Entry<String, KafkaFuture<TopicDescription>> topicFuture : futures.entrySet()) {
+            final String topicName = topicFuture.getKey();
+            try {
+                final TopicDescription topicDescription = topicFuture.getValue().get();
+                existedTopicPartition.put(
+                    topicFuture.getKey(),
+                    topicDescription.partitions().size());
+            } catch (final InterruptedException fatalException) {
+                // this should not happen; if it ever happens it indicate a bug
+                Thread.currentThread().interrupt();
+                log.error(INTERRUPTED_ERROR_MESSAGE, fatalException);
+                throw new IllegalStateException(INTERRUPTED_ERROR_MESSAGE, fatalException);
+            } catch (final ExecutionException couldNotDescribeTopicException) {
+                final Throwable cause = couldNotDescribeTopicException.getCause();
+                if (cause instanceof UnknownTopicOrPartitionException ||
+                    cause instanceof LeaderNotAvailableException) {
+                    // This topic didn't exist or leader is not known yet, proceed to try to create it
+                    log.debug("Topic {} is unknown or not found, hence not existed yet: {}", topicName, cause.toString());
+                } else {
+                    log.error("Unexpected error during topic description for {}.\n" +
+                        "Error message was: {}", topicName, cause.toString());
+                    throw new StreamsException(String.format("Could not create topic %s.", topicName), cause);
+                }
+            }
+        }
+
+        return existedTopicPartition;
+    }
+
+    /**
+     * Check the existing topics to have correct number of partitions; and return the remaining topics that needs to be created
+     */
+    private Set<String> validateTopics(final Set<String> topicsToValidate, final Map<String, InternalTopicConfig> topicsMap) {
+        if (!topicsMap.keySet().containsAll(topicsToValidate)) {
+            throw new IllegalStateException("The topics map " + topicsMap.keySet() + " does not contain all the topics " +
+                topicsToValidate + " trying to validate.");
+        }
+
+        final Map<String, Integer> existedTopicPartition = getNumPartitions(topicsToValidate);
+
+        final Set<String> topicsToCreate = new HashSet<>();
+        for (final String topicName : topicsToValidate) {
+            final Optional<Integer> numberOfPartitions = topicsMap.get(topicName).numberOfPartitions();
+            if (existedTopicPartition.containsKey(topicName) && numberOfPartitions.isPresent()) {
+                if (!existedTopicPartition.get(topicName).equals(numberOfPartitions.get())) {
+                    final String errorMsg = String.format("Existing internal topic %s has invalid partitions: " +
+                            "expected: %d; actual: %d. " +
+                            "Use 'kafka.tools.StreamsResetter' tool to clean up invalid topics before processing.",
+                        topicName, numberOfPartitions.get(), existedTopicPartition.get(topicName));
+                    log.error(errorMsg);
+                    throw new StreamsException(errorMsg);
                 }
             } else {
-                if (topicMetadata.size() > numPartitions) {
-                    // else if topic exists with more #.partitions than needed, delete in order to re-create it
-                    try {
-                        deleteTopic(topic);
-                    } catch (ZkNodeExistsException e) {
-                        // ignore and continue
-                    }
-                } else if (topicMetadata.size() < numPartitions) {
-                    // else if topic exists with less #.partitions than needed, add partitions
-                    try {
-                        addPartitions(topic, numPartitions - topicMetadata.size(), replicationFactor, topicMetadata);
-                    } catch (ZkNoNodeException e) {
-                        // ignore and continue
-                    }
-                } else {
-                    topicNotReady = false;
-                }
-            }
-        }
-    }
-
-    private List<Integer> getBrokers() {
-        List<Integer> brokers = new ArrayList<>();
-        for (String broker: zkClient.getChildren(ZK_BROKER_PATH)) {
-            brokers.add(Integer.parseInt(broker));
-        }
-        Collections.sort(brokers);
-
-        log.debug("Read brokers {} from ZK in partition assignor.", brokers);
-
-        return brokers;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<Integer, List<Integer>> getTopicMetadata(String topic) {
-        String data = zkClient.readData(ZK_TOPIC_PATH + "/" + topic, true);
-
-        if (data == null) return null;
-
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-
-            Map<String, Object> dataMap = mapper.readValue(data, new TypeReference<Map<String, Object>>() {
-
-            });
-
-            Map<Integer, List<Integer>> partitions = (Map<Integer, List<Integer>>) dataMap.get("partitions");
-
-            log.debug("Read partitions {} for topic {} from ZK in partition assignor.", partitions, topic);
-
-            return partitions;
-        } catch (IOException e) {
-            throw new StreamsException("Error while reading topic metadata from ZK for internal topic " + topic, e);
-        }
-    }
-
-    private void createTopic(String topic, int numPartitions, int replicationFactor, boolean compactTopic) throws ZkNodeExistsException {
-        log.debug("Creating topic {} with {} partitions from ZK in partition assignor.", topic, numPartitions);
-        Properties prop = new Properties();
-        ObjectMapper mapper = new ObjectMapper();
-        List<Integer> brokers = getBrokers();
-        int numBrokers = brokers.size();
-        if (numBrokers < replicationFactor) {
-            log.warn("Not enough brokers found. The replication factor is reduced from " + replicationFactor + " to " +  numBrokers);
-            replicationFactor = numBrokers;
-        }
-
-        Map<Integer, List<Integer>> assignment = new HashMap<>();
-
-        for (int i = 0; i < numPartitions; i++) {
-            ArrayList<Integer> brokerList = new ArrayList<>();
-            for (int r = 0; r < replicationFactor; r++) {
-                int shift = r * numBrokers / replicationFactor;
-                brokerList.add(brokers.get((i + shift) % numBrokers));
-            }
-            assignment.put(i, brokerList);
-        }
-        // write out config first just like in AdminUtils.scala createOrUpdateTopicPartitionAssignmentPathInZK()
-        if (compactTopic) {
-            prop.put(CLEANUP_POLICY_PROP, COMPACT);
-            try {
-                Map<String, Object> dataMap = new HashMap<>();
-                dataMap.put("version", 1);
-                dataMap.put("config", prop);
-                String data = mapper.writeValueAsString(dataMap);
-                zkClient.createPersistent(ZK_ENTITY_CONFIG_PATH + "/" + topic, data, ZooDefs.Ids.OPEN_ACL_UNSAFE);
-            } catch (JsonProcessingException e) {
-                throw new StreamsException("Error while creating topic config in ZK for internal topic " + topic, e);
+                topicsToCreate.add(topicName);
             }
         }
 
-        // try to write to ZK with open ACL
-        try {
-            Map<String, Object> dataMap = new HashMap<>();
-            dataMap.put("version", 1);
-            dataMap.put("partitions", assignment);
-            String data = mapper.writeValueAsString(dataMap);
-
-            zkClient.createPersistent(ZK_TOPIC_PATH + "/" + topic, data, ZooDefs.Ids.OPEN_ACL_UNSAFE);
-        } catch (JsonProcessingException e) {
-            throw new StreamsException("Error while creating topic metadata in ZK for internal topic " + topic, e);
-        }
+        return topicsToCreate;
     }
-
-    private void deleteTopic(String topic) throws ZkNodeExistsException {
-        log.debug("Deleting topic {} from ZK in partition assignor.", topic);
-
-        zkClient.createPersistent(ZK_DELETE_TOPIC_PATH + "/" + topic, "", ZooDefs.Ids.OPEN_ACL_UNSAFE);
-    }
-
-    private void addPartitions(String topic, int numPartitions, int replicationFactor, Map<Integer, List<Integer>> existingAssignment) {
-        log.debug("Adding {} partitions topic {} from ZK with existing partitions assigned as {} in partition assignor.", topic, numPartitions, existingAssignment);
-
-        List<Integer> brokers = getBrokers();
-        int numBrokers = brokers.size();
-        if (numBrokers < replicationFactor) {
-            log.warn("Not enough brokers found. The replication factor is reduced from " + replicationFactor + " to " +  numBrokers);
-            replicationFactor = numBrokers;
-        }
-
-        int startIndex = existingAssignment.size();
-
-        Map<Integer, List<Integer>> newAssignment = new HashMap<>(existingAssignment);
-
-        for (int i = 0; i < numPartitions; i++) {
-            ArrayList<Integer> brokerList = new ArrayList<>();
-            for (int r = 0; r < replicationFactor; r++) {
-                int shift = r * numBrokers / replicationFactor;
-                brokerList.add(brokers.get((i + shift) % numBrokers));
-            }
-            newAssignment.put(i + startIndex, brokerList);
-        }
-
-        // try to write to ZK with open ACL
-        try {
-            Map<String, Object> dataMap = new HashMap<>();
-            dataMap.put("version", 1);
-            dataMap.put("partitions", newAssignment);
-
-            ObjectMapper mapper = new ObjectMapper();
-            String data = mapper.writeValueAsString(dataMap);
-
-            zkClient.writeData(ZK_TOPIC_PATH + "/" + topic, data);
-        } catch (JsonProcessingException e) {
-            throw new StreamsException("Error while updating topic metadata in ZK for internal topic " + topic, e);
-        }
-    }
-
 }

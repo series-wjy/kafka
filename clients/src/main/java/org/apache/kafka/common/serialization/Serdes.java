@@ -1,29 +1,57 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements. See the NOTICE
- * file distributed with this work for additional information regarding copyright ownership. The ASF licenses this file
- * to You under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
- * License. You may obtain a copy of the License at
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package org.apache.kafka.common.serialization;
 
 import org.apache.kafka.common.utils.Bytes;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
+<<<<<<< HEAD
+=======
+import java.util.UUID;
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
 /**
  * Factory for creating serializers / deserializers.
  */
 public class Serdes {
 
+<<<<<<< HEAD
     static private class WrapperSerde<T> implements Serde<T> {
+        final private Serializer<T> serializer;
+        final private Deserializer<T> deserializer;
+
+        public WrapperSerde(Serializer<T> serializer, Deserializer<T> deserializer) {
+            this.serializer = serializer;
+            this.deserializer = deserializer;
+        }
+
+        @Override
+        public void configure(Map<String, ?> configs, boolean isKey) {
+            serializer.configure(configs, isKey);
+            deserializer.configure(configs, isKey);
+        }
+
+        @Override
+        public void close() {
+            serializer.close();
+            deserializer.close();
+=======
+    static public class WrapperSerde<T> implements Serde<T> {
         final private Serializer<T> serializer;
         final private Deserializer<T> deserializer;
 
@@ -52,6 +80,25 @@ public class Serdes {
         @Override
         public Deserializer<T> deserializer() {
             return deserializer;
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
+        }
+
+<<<<<<< HEAD
+        @Override
+        public Serializer<T> serializer() {
+            return serializer;
+=======
+    static public final class VoidSerde extends WrapperSerde<Void> {
+        public VoidSerde() {
+            super(new VoidSerializer(), new VoidDeserializer());
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
+        }
+    }
+
+<<<<<<< HEAD
+        @Override
+        public Deserializer<T> deserializer() {
+            return deserializer;
         }
     }
 
@@ -64,6 +111,29 @@ public class Serdes {
     static public final class IntegerSerde extends WrapperSerde<Integer> {
         public IntegerSerde() {
             super(new IntegerSerializer(), new IntegerDeserializer());
+=======
+    static public final class LongSerde extends WrapperSerde<Long> {
+        public LongSerde() {
+            super(new LongSerializer(), new LongDeserializer());
+        }
+    }
+
+    static public final class IntegerSerde extends WrapperSerde<Integer> {
+        public IntegerSerde() {
+            super(new IntegerSerializer(), new IntegerDeserializer());
+        }
+    }
+
+    static public final class ShortSerde extends WrapperSerde<Short> {
+        public ShortSerde() {
+            super(new ShortSerializer(), new ShortDeserializer());
+        }
+    }
+
+    static public final class FloatSerde extends WrapperSerde<Float> {
+        public FloatSerde() {
+            super(new FloatSerializer(), new FloatDeserializer());
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         }
     }
 
@@ -94,6 +164,15 @@ public class Serdes {
     static public final class ByteArraySerde extends WrapperSerde<byte[]> {
         public ByteArraySerde() {
             super(new ByteArraySerializer(), new ByteArrayDeserializer());
+<<<<<<< HEAD
+=======
+        }
+    }
+
+    static public final class UUIDSerde extends WrapperSerde<UUID> {
+        public UUIDSerde() {
+            super(new UUIDSerializer(), new UUIDDeserializer());
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
         }
     }
 
@@ -103,12 +182,20 @@ public class Serdes {
             return (Serde<T>) String();
         }
 
+        if (Short.class.isAssignableFrom(type)) {
+            return (Serde<T>) Short();
+        }
+
         if (Integer.class.isAssignableFrom(type)) {
             return (Serde<T>) Integer();
         }
 
         if (Long.class.isAssignableFrom(type)) {
             return (Serde<T>) Long();
+        }
+
+        if (Float.class.isAssignableFrom(type)) {
+            return (Serde<T>) Float();
         }
 
         if (Double.class.isAssignableFrom(type)) {
@@ -127,8 +214,13 @@ public class Serdes {
             return (Serde<T>) Bytes();
         }
 
+        if (UUID.class.isAssignableFrom(type)) {
+            return (Serde<T>) UUID();
+        }
+
         // TODO: we can also serializes objects of type T using generic Java serialization by default
-        throw new IllegalArgumentException("Unknown class for built-in serializer");
+        throw new IllegalArgumentException("Unknown class for built-in serializer. Supported types are: " +
+            "String, Short, Integer, Long, Float, Double, ByteArray, ByteBuffer, Bytes, UUID");
     }
 
     /**
@@ -163,6 +255,20 @@ public class Serdes {
     }
 
     /*
+     * A serde for nullable {@code Short} type.
+     */
+    static public Serde<Short> Short() {
+        return new ShortSerde();
+    }
+
+    /*
+     * A serde for nullable {@code Float} type.
+     */
+    static public Serde<Float> Float() {
+        return new FloatSerde();
+    }
+
+    /*
      * A serde for nullable {@code Double} type.
      */
     static public Serde<Double> Double() {
@@ -191,9 +297,23 @@ public class Serdes {
     }
 
     /*
+     * A serde for nullable {@code UUID} type
+     */
+    static public Serde<UUID> UUID() {
+        return new UUIDSerde();
+    }
+
+    /*
      * A serde for nullable {@code byte[]} type.
      */
     static public Serde<byte[]> ByteArray() {
         return new ByteArraySerde();
+    }
+
+    /*
+     * A serde for {@code Void} type.
+     */
+    static public Serde<Void> Void() {
+        return new VoidSerde();
     }
 }

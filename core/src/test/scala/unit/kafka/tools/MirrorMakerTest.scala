@@ -18,6 +18,7 @@
 package kafka.tools
 
 import kafka.consumer.BaseConsumerRecord
+<<<<<<< HEAD
 import org.apache.kafka.common.record.{Record, TimestampType}
 import org.junit.Assert._
 import org.junit.Test
@@ -26,6 +27,21 @@ class MirrorMakerTest {
 
   @Test
   def testDefaultMirrorMakerMessageHandler() {
+=======
+import org.apache.kafka.common.record.{RecordBatch, TimestampType}
+
+import scala.jdk.CollectionConverters._
+import org.junit.Assert._
+import org.junit.Test
+
+import scala.annotation.nowarn
+
+@nowarn("cat=deprecation")
+class MirrorMakerTest {
+
+  @Test
+  def testDefaultMirrorMakerMessageHandler(): Unit = {
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
     val now = 12345L
     val consumerRecord = BaseConsumerRecord("topic", 0, 1L, now, TimestampType.CREATE_TIME, "key".getBytes, "value".getBytes)
 
@@ -41,8 +57,14 @@ class MirrorMakerTest {
   }
 
   @Test
+<<<<<<< HEAD
   def testDefaultMirrorMakerMessageHandlerWithNoTimestampInSourceMessage() {
     val consumerRecord = BaseConsumerRecord("topic", 0, 1L, Record.NO_TIMESTAMP, TimestampType.CREATE_TIME, "key".getBytes, "value".getBytes)
+=======
+  def testDefaultMirrorMakerMessageHandlerWithNoTimestampInSourceMessage(): Unit = {
+    val consumerRecord = BaseConsumerRecord("topic", 0, 1L, RecordBatch.NO_TIMESTAMP, TimestampType.CREATE_TIME,
+      "key".getBytes, "value".getBytes)
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
     val result = MirrorMaker.defaultMirrorMakerMessageHandler.handle(consumerRecord)
     assertEquals(1, result.size)
@@ -55,4 +77,25 @@ class MirrorMakerTest {
     assertEquals("value", new String(producerRecord.value))
   }
 
+<<<<<<< HEAD
+=======
+  @Test
+  def testDefaultMirrorMakerMessageHandlerWithHeaders(): Unit = {
+    val now = 12345L
+    val consumerRecord = BaseConsumerRecord("topic", 0, 1L, now, TimestampType.CREATE_TIME, "key".getBytes,
+      "value".getBytes)
+    consumerRecord.headers.add("headerKey", "headerValue".getBytes)
+    val result = MirrorMaker.defaultMirrorMakerMessageHandler.handle(consumerRecord)
+    assertEquals(1, result.size)
+
+    val producerRecord = result.get(0)
+    assertEquals(now, producerRecord.timestamp)
+    assertEquals("topic", producerRecord.topic)
+    assertNull(producerRecord.partition)
+    assertEquals("key", new String(producerRecord.key))
+    assertEquals("value", new String(producerRecord.value))
+    assertEquals("headerValue", new String(producerRecord.headers.lastHeader("headerKey").value))
+    assertEquals(1, producerRecord.headers.asScala.size)
+  }
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 }

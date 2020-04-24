@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,24 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.streams.processor.internals;
 
-import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.Producer;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
-import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.processor.StreamPartitioner;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+<<<<<<< HEAD
 public class RecordCollector {
 
     /**
@@ -49,16 +42,29 @@ public class RecordCollector {
 
     private final Producer<byte[], byte[]> producer;
     private final Map<TopicPartition, Long> offsets;
+=======
+public interface RecordCollector {
 
-    public RecordCollector(Producer<byte[], byte[]> producer) {
-        this.producer = producer;
-        this.offsets = new HashMap<>();
-    }
+    <K, V> void send(final String topic,
+                     final K key,
+                     final V value,
+                     final Headers headers,
+                     final Integer partition,
+                     final Long timestamp,
+                     final Serializer<K> keySerializer,
+                     final Serializer<V> valueSerializer);
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
 
-    public <K, V> void send(ProducerRecord<K, V> record, Serializer<K> keySerializer, Serializer<V> valueSerializer) {
-        send(record, keySerializer, valueSerializer, null);
-    }
+    <K, V> void send(final String topic,
+                     final K key,
+                     final V value,
+                     final Headers headers,
+                     final Long timestamp,
+                     final Serializer<K> keySerializer,
+                     final Serializer<V> valueSerializer,
+                     final StreamPartitioner<? super K, ? super V> partitioner);
 
+<<<<<<< HEAD
     public <K, V> void send(ProducerRecord<K, V> record, Serializer<K> keySerializer, Serializer<V> valueSerializer,
                             StreamPartitioner<K, V> partitioner) {
         byte[] keyBytes = keySerializer.serialize(record.topic(), record.key());
@@ -86,24 +92,42 @@ public class RecordCollector {
             }
         });
     }
-
-    public void flush() {
-        this.producer.flush();
-    }
-
+=======
     /**
-     * Closes this RecordCollector
-     */
-    public void close() {
-        producer.close();
-    }
-
-    /**
-     * The last ack'd offset from the producer
+     * Initialize the internal {@link Producer}; note this function should be made idempotent
      *
-     * @return the map from TopicPartition to offset
+     * @throws org.apache.kafka.common.errors.TimeoutException if producer initializing txn id timed out
      */
-    Map<TopicPartition, Long> offsets() {
-        return this.offsets;
+    void initialize();
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
+
+    /**
+     * Flush the internal {@link Producer}.
+     */
+    void flush();
+
+    /**
+     * Close the internal {@link Producer}.
+     */
+    void close();
+
+    /**
+     * The last acked offsets from the internal {@link Producer}.
+     *
+     * @return an immutable map from TopicPartition to offset
+     */
+    Map<TopicPartition, Long> offsets();
+
+    /**
+     * A supplier of a {@link RecordCollectorImpl} instance.
+     */
+    // TODO: after we have done KAFKA-9088 we should just add this function
+    // to InternalProcessorContext interface
+    interface Supplier {
+        /**
+         * Get the record collector.
+         * @return the record collector
+         */
+        RecordCollector recordCollector();
     }
 }

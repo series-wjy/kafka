@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.common.network;
 
 /*
@@ -65,6 +64,11 @@ public class PlaintextTransportLayer implements TransportLayer {
     }
 
     @Override
+    public SelectionKey selectionKey() {
+        return key;
+    }
+
+    @Override
     public boolean isOpen() {
         return socketChannel.isOpen();
     }
@@ -74,13 +78,9 @@ public class PlaintextTransportLayer implements TransportLayer {
         return socketChannel.isConnected();
     }
 
-    /**
-     * Closes this channel
-     *
-     * @throws IOException If I/O error occurs
-     */
     @Override
     public void close() throws IOException {
+<<<<<<< HEAD
         try {
             socketChannel.socket().close();
             socketChannel.close();
@@ -88,15 +88,18 @@ public class PlaintextTransportLayer implements TransportLayer {
             key.attach(null);
             key.cancel();
         }
+=======
+        socketChannel.socket().close();
+        socketChannel.close();
+>>>>>>> ce0b7f6373657d6bda208ff85a1c2c4fe8d05a7b
     }
 
     /**
      * Performs SSL handshake hence is a no-op for the non-secure
      * implementation
-     * @throws IOException
-    */
+     */
     @Override
-    public void handshake() throws IOException {}
+    public void handshake() {}
 
     /**
     * Reads a sequence of bytes from this channel into the given buffer.
@@ -127,7 +130,7 @@ public class PlaintextTransportLayer implements TransportLayer {
      * @param dsts - The buffers into which bytes are to be transferred
      * @param offset - The offset within the buffer array of the first buffer into which bytes are to be transferred; must be non-negative and no larger than dsts.length.
      * @param length - The maximum number of buffers to be accessed; must be non-negative and no larger than dsts.length - offset
-     * @returns The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream.
+     * @return The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream.
      * @throws IOException if some other I/O error occurs
      */
     @Override
@@ -139,7 +142,7 @@ public class PlaintextTransportLayer implements TransportLayer {
     * Writes a sequence of bytes to this channel from the given buffer.
     *
     * @param src The buffer from which bytes are to be retrieved
-    * @returns The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream
+    * @return The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream
     * @throws IOException If some other I/O error occurs
     */
     @Override
@@ -151,7 +154,7 @@ public class PlaintextTransportLayer implements TransportLayer {
     * Writes a sequence of bytes to this channel from the given buffer.
     *
     * @param srcs The buffer from which bytes are to be retrieved
-    * @returns The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream
+    * @return The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream
     * @throws IOException If some other I/O error occurs
     */
     @Override
@@ -186,13 +189,12 @@ public class PlaintextTransportLayer implements TransportLayer {
      * Returns ANONYMOUS as Principal.
      */
     @Override
-    public Principal peerPrincipal() throws IOException {
+    public Principal peerPrincipal() {
         return principal;
     }
 
     /**
      * Adds the interestOps to selectionKey.
-     * @param ops
      */
     @Override
     public void addInterestOps(int ops) {
@@ -202,7 +204,6 @@ public class PlaintextTransportLayer implements TransportLayer {
 
     /**
      * Removes the interestOps from selectionKey.
-     * @param ops
      */
     @Override
     public void removeInterestOps(int ops) {
@@ -212,6 +213,11 @@ public class PlaintextTransportLayer implements TransportLayer {
     @Override
     public boolean isMute() {
         return key.isValid() && (key.interestOps() & SelectionKey.OP_READ) == 0;
+    }
+
+    @Override
+    public boolean hasBytesBuffered() {
+        return false;
     }
 
     @Override
